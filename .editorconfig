@@ -1,0 +1,33 @@
+# Shared editor settings (Zed reads this natively; VS Code via the EditorConfig extension).
+# Code layout itself is enforced by the formatters: clang-format (C++) and Ruff (Python).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# C++: matches .clang-format
+[*.{cpp,hpp,h}]
+max_line_length = 110
+
+# Python: matches [tool.ruff] in pyproject.toml
+[*.py]
+max_line_length = 100
+
+[{CMakeLists.txt,*.cmake}]
+indent_size = 2
+
+[{*.json,*.yml,*.yaml,.clangd,.clang-format}]
+indent_size = 2
+
+# Two trailing spaces are a line break in Markdown.
+[*.md]
+trim_trailing_whitespace = false
+
+# cmd.exe needs CRLF line endings.
+[*.{bat,cmd}]
+end_of_line = crlf
