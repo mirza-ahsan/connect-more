@@ -1,0 +1,103 @@
+{
+  "version": 10,
+  "cmakeMinimumRequired": { "major": 4, "minor": 4, "patch": 0 },
+  "$comment": [
+    "Build presets for connect-more. Experiments use ONLY the 'release' preset, on both laptops.",
+    "Run: cmake --workflow --preset release   (configure + build + all tests)"
+  ],
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (experiments)",
+      "description": "The only preset used for experiment builds. Values here are locked; see ENVIRONMENT.md.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CM_STRICT_TOOLCHAIN": "ON",
+        "CM_EXPECTED_GCC_VERSION": "16.1.0",
+        "CM_ARCH": "x86-64-v3",
+        "CM_STATIC": "ON",
+        "CM_ENABLE_LTO": "OFF",
+        "CM_DEFAULT_TT_MB": "1024"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "description": "No optimisation, full debug info, libstdc++ assertions.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "debug-ubsan",
+      "displayName": "Debug + UBSan (trap mode)",
+      "description": "Debug build that traps on undefined behaviour.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CM_ENABLE_UBSAN": "ON"
+      }
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "RelWithDebInfo (profiling)",
+      "description": "Optimised build with debug info, for profiling. Not for experiment results.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "release" },
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "debug-ubsan", "configurePreset": "debug-ubsan" },
+    { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo" }
+  ],
+  "testPresets": [
+    {
+      "name": "test-base",
+      "hidden": true,
+      "output": { "outputOnFailure": true }
+    },
+    { "name": "release", "inherits": "test-base", "configurePreset": "release" },
+    {
+      "name": "release-unit",
+      "displayName": "Release: unit tests only",
+      "inherits": "test-base",
+      "configurePreset": "release",
+      "filter": { "include": { "label": "unit" } }
+    },
+    {
+      "name": "release-verify",
+      "displayName": "Release: solve known positions and compare",
+      "inherits": "test-base",
+      "configurePreset": "release",
+      "filter": { "include": { "label": "verify" } }
+    },
+    { "name": "debug", "inherits": "test-base", "configurePreset": "debug" },
+    { "name": "debug-ubsan", "inherits": "test-base", "configurePreset": "debug-ubsan" },
+    { "name": "relwithdebinfo", "inherits": "test-base", "configurePreset": "relwithdebinfo" }
+  ],
+  "workflowPresets": [
+    {
+      "name": "release",
+      "steps": [
+        { "type": "configure", "name": "release" },
+        { "type": "build", "name": "release" },
+        { "type": "test", "name": "release" }
+      ]
+    }
+  ]
+}
