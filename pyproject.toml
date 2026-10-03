@@ -1,8 +1,7 @@
 [project]
 name = "connect-more"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Distributed Connect Four solver for heterogeneous consumer laptops"
 authors = [
     { name = "mirza-ahsan", email = "ahsan.17april@gmail.com" }
 ]
@@ -17,20 +16,35 @@ dependencies = [
     "scipy==1.15.3",
 ]
 
-[project.scripts]
-connect-more = "connect_more:main"
-
-[build-system]
-requires = ["uv_build>=0.12.8,<0.13.0"]
-build-backend = "uv_build"
-
 [dependency-groups]
 dev = [
+    "pyrefly==1.2.0",
     "pytest==8.3.5",
+    "ruff==0.16.5",
 ]
 
 [tool.uv]
 package = false
 required-version = "==0.12.8"
 
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["temp", "deliverables"]
 
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes (unused names, undefined variables)
+    "I",       # import sorting
+    "B",       # bugbear (likely bugs)
+    "UP",      # modern Python 3.12 syntax
+    "SIM",     # simplifications
+    "PTH",     # use pathlib (CLAUDE.md)
+    "ANN",     # type hints on all functions (CLAUDE.md)
+    "RUF",     # ruff-specific checks
+]
+
+[tool.pyrefly]
+python-version = "3.12"
+project-excludes = ["temp/**", "deliverables/**", "build/**"]
