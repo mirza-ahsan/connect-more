@@ -23,9 +23,6 @@ compile_commands.json
 logs/
 *.CSV
 
-# --- Scratch ---
-temp/
-
 # --- AI assistant local settings ---
 .claude/settings.local.json
 CLAUDE.local.md
