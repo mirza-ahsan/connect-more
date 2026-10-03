@@ -13,7 +13,7 @@ A university research project (Parallel & Distributed Computing, Fall 2026, doma
 
 The output is a conference paper (IEEE/ACM). Correct, reproducible measurements matter more than clever code.
 
-Both group members commit to this repository, each from their own clone. Every rule in this file applies to both members' AI sessions in the same way.
+Both group members commit to this repository, each from their own clone. Every rule in this file applies to both members in the same way, whether a change is made by hand or with an AI assistant.
 
 ## 2. Hard rules (always follow)
 
@@ -31,7 +31,7 @@ Both group members commit to this repository, each from their own clone. Every r
 6. Before committing, show the user `git status --short` and the staged diff summary (`git diff --cached --stat`).
 7. Commit message format: `<area>: <imperative summary>` (max ~72 chars), optional blank line + short body. Areas: `solver`, `coordinator`, `worker`, `scripts`, `analysis`, `tests`, `build`, `env`, `docs`.
    Example: `solver: add transposition table with 2^24 entries`
-8. Never commit generated or bulky files: `build/`, `dist/`, `.venv/`, `logs/`, `temp/`, `*.exe`, HWiNFO `*.CSV`, `compile_commands.json`.
+8. Never commit generated or bulky files: `build/`, `dist/`, `.venv/`, `logs/`, `*.exe`, HWiNFO `*.CSV`, `compile_commands.json`.
 9. The remote is `origin` = `git@github.com:mirza-ahsan/connect-more.git` (SSH). Pushing and pulling are done by the group members themselves, never by the assistant.
 10. Each group member enables the commit hook once per clone by running `git config core.hooksPath .githooks` themselves (the assistant must not edit git config).
 
@@ -39,7 +39,7 @@ Both group members commit to this repository, each from their own clone. Every r
 - Do **not** run `uv add`, `uv remove`, `uv lock --upgrade`, `uv pip install`, `winget install/upgrade`, `pacman`, or anything that changes installed tools or `uv.lock`, unless the user asks.
 - Do **not** change `CMakePresets.json` values used for experiments (`CM_ARCH`, `CM_STATIC`, `CM_DEFAULT_TT_MB`, `CM_EXPECTED_GCC_VERSION`, build type of the `release` preset) without asking.
 - Do **not** edit `ENVIRONMENT.md` unless asked, or unless the user approved an environment change in this session (then update it, including the Change Log table).
-- Do **not** touch `temp/` (scratch, being deleted) or `deliverables/` (submitted course documents).
+- Do **not** touch `deliverables/` (submitted course documents).
 
 ### Experiments and data integrity
 - Experiment builds use **only** the `release` preset, on both laptops.
