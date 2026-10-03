@@ -29,7 +29,7 @@ Fields marked `TBD` are still to be filled in.
 
 | | Laptop 1 | Laptop 2 |
 |---|---|---|
-| OS | Windows 11 Pro | TBD |
+| OS | Windows 11 Pro | Windows 11 (edition TBD) |
 | Version | 26H2 | 25H2 (update to match if available) |
 | OS build | 26300.9457 | TBD |
 
@@ -45,16 +45,19 @@ Note: Python's `platform` module reports "Windows 10" on Windows 11. This is a k
 | GDB | 17.2 | Bundled with WinLibs | Same `mingw64\bin` | Same `mingw64\bin` |
 | Ninja | 1.13.2 | Bundled with WinLibs | Same `mingw64\bin` | Same `mingw64\bin` |
 | CMake | 4.4.3 | Kitware via winget (`Kitware.CMake`) | `C:\Program Files\CMake\bin` | `C:\Program Files\CMake\bin` |
+| clang-format / clangd | 22.1.8 (editor tooling only; never used to compile) | LLVM via winget (`LLVM.LLVM`) | `C:\Program Files\LLVM\bin` | TBD |
 
 - WinLibs also bundles its own `cmake.exe`, but it is **not used**. Kitware CMake is in the system PATH, which Windows searches before the user PATH, so Kitware's copy takes priority. Confirm with `where.exe cmake` (Kitware's path must be listed first).
 - Laptop 2 receives a byte-identical compiler by copying the whole `mingw64` folder from Laptop 1.
+- LLVM provides clangd (code navigation) and clang-format (C++ formatting on save, rules in `.clang-format`). Both laptops must have the same version, because different clang-format versions can format the same code slightly differently. Both editors are set to use the `clangd` on PATH, not a copy they download. On Laptop 2: `winget install --id LLVM.LLVM --exact --version 22.1.8`, then `winget pin add --id LLVM.LLVM --exact`.
 
 ### Build settings
 
 | Setting | Value |
 |---|---|
 | C++ standard | C++20 |
-| Compile flags | `-O3 -march=x86-64-v3 -Wall -Wextra` |
+| Compile flags (`release` preset) | `-std=c++20 -O3 -DNDEBUG -march=x86-64-v3 -mtune=generic` |
+| Warning flags | `-Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wnon-virtual-dtor -Woverloaded-virtual -Wold-style-cast -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wimplicit-fallthrough -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wlogical-op` |
 | Link flags | `-static` |
 | CMake generator | Ninja |
 
@@ -86,8 +89,12 @@ The project uses uv's own Python, not the system Python. `.python-version` must 
 | matplotlib | 3.10.3 | Charts |
 | scipy | 1.15.3 | Statistics across repeated runs |
 | pytest (dev) | 8.3.5 | Automated tests |
+| ruff (dev) | 0.16.5 | Lint and format (config in `pyproject.toml`) |
+| pyrefly (dev) | 1.2.0 | Type checking (config in `pyproject.toml`) |
 
 Exact resolved versions are locked in `uv.lock`. On a new machine, run `uv sync`. Run everything through `uv run`.
+
+Laptop 1's system Python also has copies of ruff 0.16.5 and pyrefly 1.2.0. The project does not use them; `uv run` and the editors use the copies in `.venv`.
 
 ---
 
@@ -107,6 +114,7 @@ Exact resolved versions are locked in `uv.lock`. On a new machine, run `uv sync`
 - `BrechtSanders.WinLibs.POSIX.UCRT`
 - `astral-sh.uv`
 - `Kitware.CMake`
+- `LLVM.LLVM`
 
 ---
 
@@ -194,6 +202,8 @@ cmake --version
 where.exe cmake
 ninja --version
 gdb --version
+clang-format --version
+clangd --version
 uv --version
 uv run python --version
 uv pip list
@@ -209,3 +219,6 @@ git --version
 | 2026-10 | Laptop 1 | Initial environment setup and smoke tests |
 | 2026-10 | Laptop 1 | Added hardware details, Dell thermal profile; pinned project Python to exact 3.12.13 |
 | 2026-10 | Laptop 1 | HWiNFO logging set to 1000 ms and verified; Ethernet adapter obtained; power limits recorded |
+| 2026-10-03 | Both (via `uv.lock`) | Added dev dependencies ruff 0.16.5 and pyrefly 1.2.0; added Ruff/Pyrefly config to `pyproject.toml` |
+| 2026-10-03 | Both | Build settings table corrected to match `CMakeLists.txt` (added `-mtune=generic` and the full warning list); recorded Laptop 2 OS as Windows 11 |
+| 2026-10-03 | Laptop 1 | Recorded LLVM 22.1.8 (clangd, clang-format) and pinned it in winget; added `.clang-format` and `.editorconfig`; C++ now formats on save in Zed and VS Code |
