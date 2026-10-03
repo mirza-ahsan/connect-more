@@ -1,0 +1,31 @@
+---
+Language:        Cpp
+BasedOnStyle:    Google
+
+# --- Indentation ---
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+AccessModifierOffset: -4
+
+# --- Formatting ---
+ColumnLimit:     110
+Standard:        c++20
+
+# --- Braces on New Line (Allman Style) ---
+BreakBeforeBraces: Allman
+
+# --- Pointers & References ---
+PointerAlignment: Left
+
+# --- Includes ---
+SortIncludes:    true
+IncludeBlocks:   Preserve
+
+# --- Class/Struct ---
+IndentAccessModifiers: false
+
+# --- Functions ---
+AllowShortFunctionsOnASingleLine: Empty
+BinPackArguments: true
+...
