@@ -106,7 +106,9 @@ Laptop 1's system Python also has copies of ruff 0.16.5 and pyrefly 1.2.0. The p
 | HWiNFO64 | 8.54 | winget `REALiX.HWiNFO` | Temperature, per-core clock and power logging |
 | iperf3 | 3.21 | winget `ar51an.iPerf3` | Network throughput tests |
 | Process Explorer | 17.14 | winget `Microsoft.Sysinternals.ProcessExplorer` | Per-core activity |
-| Coreinfo | 3.6 | Sysinternals download to `C:\Tools\Sysinternals` | Identifying core types |
+| Coreinfo | 4.02 | Sysinternals download to `C:\Tools\Sysinternals` | Identifying core types |
+| PowerShell 7 | 7.6.6.0 | winget `Microsoft.PowerShell` | Default shell in Windows Terminal; setup scripts |
+| Visual Studio Code | 1.140.0 (updates itself) | winget `Microsoft.VisualStudioCode` | Editor (Laptop 2 uses VS Code only) |
 | OpenSSH Server | Windows capability `OpenSSH.Server~~~~0.0.1.0` | Windows optional feature | Remote control between laptops |
 
 ### Pinned in winget (protected from `winget upgrade --all`)
@@ -222,3 +224,4 @@ git --version
 | 2026-10-03 | Both (via `uv.lock`) | Added dev dependencies ruff 0.16.5 and pyrefly 1.2.0; added Ruff/Pyrefly config to `pyproject.toml` |
 | 2026-10-03 | Both | Build settings table corrected to match `CMakeLists.txt` (added `-mtune=generic` and the full warning list); recorded Laptop 2 OS as Windows 11 |
 | 2026-10-03 | Laptop 1 | Recorded LLVM 22.1.8 (clangd, clang-format) and pinned it in winget; added `.clang-format` and `.editorconfig`; C++ now formats on save in Zed and VS Code |
+| 2026-10-04 | Laptop 1 | Corrected Coreinfo version to 4.02 (file version of the installed copy); recorded PowerShell 7.6.6.0 and VS Code 1.140.0 |
