@@ -1,0 +1,57 @@
+// Project settings for Zed. Shared via git.
+{
+  "languages": {
+    "Python": {
+      "language_servers": ["pyrefly", "ruff", "!basedpyright", "!pyright", "!ty", "!pylsp", "..."],
+      "format_on_save": "on",
+      "formatter": [
+        { "code_action": "source.organizeImports.ruff" },
+        { "code_action": "source.fixAll.ruff" },
+        { "language_server": { "name": "ruff" } }
+      ]
+    },
+    // C++ is formatted on save by clangd, using .clang-format.
+    "C++": {
+      "language_servers": ["clangd", "..."],
+      "format_on_save": "on",
+      "formatter": { "language_server": { "name": "clangd" } }
+    },
+    // Zed opens .h files as C; format them the same way.
+    "C": {
+      "language_servers": ["clangd", "..."],
+      "format_on_save": "on",
+      "formatter": { "language_server": { "name": "clangd" } }
+    }
+  },
+  "lsp": {
+    "ruff": {
+      "initialization_options": {
+        "settings": {
+          "configurationPreference": "filesystemFirst"
+        }
+      }
+    },
+    "clangd": {
+      // Use the pinned LLVM clangd on PATH (see ENVIRONMENT.md), not one Zed downloads.
+      "binary": {
+        "path": "clangd",
+        "arguments": [
+          "--query-driver=**/g++*",
+          "--background-index",
+          "--header-insertion=never",
+          "--clang-tidy=false"
+        ]
+      }
+    }
+  },
+  "file_scan_exclusions": [
+    "**/.git",
+    "**/.venv",
+    "**/build",
+    "**/dist",
+    "**/logs",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache"
+  ]
+}
