@@ -23,9 +23,6 @@ compile_commands.json
 logs/
 *.CSV
 
-# --- Scratch ---
-temp/
-
 # --- Editors / OS ---
 .vscode/*
 !.vscode/settings.json
