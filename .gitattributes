@@ -1,0 +1,20 @@
+# Store text files with LF in the repository and check them out with LF on
+# every machine, whatever core.autocrlf is set to (Git for Windows defaults to
+# CRLF). This keeps .githooks/commit-msg runnable and diffs free of line-ending noise.
+* text=auto eol=lf
+
+# cmd.exe needs CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never convert or diff as text.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
