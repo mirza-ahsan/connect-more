@@ -1,8 +1,41 @@
+# --- Python / uv ---
 .venv/
-build/
-logs/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- CMake / C++ build output ---
+build/
+dist/
+out/
+CMakeUserPresets.json
+compile_commands.json
 *.exe
 *.o
-.pytest_cache/
+*.obj
+*.a
+*.lib
+*.pdb
+
+# --- Experiment output (raw logs are large; commit summaries instead) ---
+logs/
+*.CSV
+
+# --- Scratch ---
 temp/
+
+# --- AI assistant local settings ---
+.claude/settings.local.json
+CLAUDE.local.md
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+.neocmake.toml
+Thumbs.db
+desktop.ini
+.DS_Store
