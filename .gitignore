@@ -1,0 +1,8 @@
+.venv/
+build/
+logs/
+__pycache__/
+*.exe
+*.o
+.pytest_cache/
+temp/
