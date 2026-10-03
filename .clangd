@@ -1,0 +1,12 @@
+# clangd configuration (used by both Zed and VS Code).
+CompileFlags:
+  CompilationDatabase: build/release
+  # GCC-only flags that clang does not understand; removed for clangd only.
+  Remove:
+    - -Wduplicated-cond
+    - -Wduplicated-branches
+    - -Wlogical-op
+    - -fsanitize-undefined-trap-on-error
+    - -fdiagnostics-color=always
+Diagnostics:
+  UnusedIncludes: Strict
