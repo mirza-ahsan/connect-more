@@ -2,26 +2,24 @@
 
 This file records the exact hardware, software and settings of both laptops so experiments are reproducible and the paper can report the setup accurately. Update it whenever anything changes, and never change the environment during an experiment session.
 
-Fields marked `TBD` are still to be filled in.
-
 ---
 
 ## 1. Hardware
 
 | | Laptop 1 | Laptop 2 |
 |---|---|---|
-| Manufacturer / model | Dell Precision 5570 | TBD |
-| BIOS version | 1.42.0 | TBD |
-| CPU | Intel Core i7-12800H (12th gen, Alder Lake) | Intel Core i5 (8th gen) — exact model TBD |
-| Core layout | 14 cores: 6 Performance (with Hyper-Threading) + 8 Efficient | TBD |
-| Logical threads | 20 | TBD |
-| Base frequency | 2400 MHz | TBD |
+| Manufacturer / model | Dell Precision 5570 | HP EliteBook 840 G5 |
+| BIOS version | 1.42.0 | Q78 Ver. 01.31.00 |
+| CPU | Intel Core i7-12800H (12th gen, Alder Lake) | Intel Core i5-8350U (8th gen, Kaby Lake R) |
+| Core layout | 14 cores: 6 Performance (with Hyper-Threading) + 8 Efficient | 4 cores, no P/E split (Hyper-Threading enabled) |
+| Logical threads | 20 | 8 |
+| Base frequency | 2400 MHz | 1896 MHz |
 | Architecture | x86_64 | x86_64 |
-| RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | 16 GB DDR4 — speed TBD |
-| GPU | NVIDIA RTX A1000 4 GB (not used in this project) | Intel UHD 630 (not used in this project) |
-| Ethernet | None built in; USB-C gigabit Ethernet adapter (model TBD) | TBD |
-| Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | TBD |
-| CPU power limits (HWiNFO, idle) | PL1 static 115 W, **PL1 dynamic 40 W**, PL2 115 W | TBD |
+| RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | 16 GB DDR4 at 2400 MT/s |
+| GPU | NVIDIA RTX A1000 4 GB (not used in this project) | Intel UHD Graphics 620 (not used in this project) |
+| Ethernet | None built in; USB-C gigabit Ethernet adapter (model TBD) | Built-in: Intel Ethernet Connection (4) I219-LM (no USB adapter needed) |
+| Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | Intel Dual Band Wireless-AC 8265 |
+| CPU power limits (HWiNFO, idle) | PL1 static 115 W, **PL1 dynamic 40 W**, PL2 115 W | PL1 static 18 W, PL2 44 W (dynamic same) |
 
 ---
 
@@ -29,9 +27,9 @@ Fields marked `TBD` are still to be filled in.
 
 | | Laptop 1 | Laptop 2 |
 |---|---|---|
-| OS | Windows 11 Pro | Windows 11 (edition TBD) |
-| Version | 26H2 | 25H2 (update to match if available) |
-| OS build | 26300.9457 | TBD |
+| OS | Windows 11 Pro | Windows 11 Pro |
+| Version | 26H2 | 25H2 |
+| OS build | 26300.9457 | 26200.9457 |
 
 Note: Python's `platform` module reports "Windows 10" on Windows 11. This is a known naming quirk; the OS is Windows 11. Versions 24H2, 25H2 and 26H2 share the same servicing branch.
 
@@ -41,11 +39,11 @@ Note: Python's `platform` module reports "Windows 10" on Windows 11. This is a k
 
 | Tool | Version | Source | Laptop 1 path | Laptop 2 path |
 |---|---|---|---|---|
-| GCC / G++ | 16.1.0 (MinGW-W64 x86_64-ucrt-posix-seh, Brecht Sanders, r4) | WinLibs via winget (`BrechtSanders.WinLibs.POSIX.UCRT`) | `C:\Users\ahsan\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin` | `C:\Tools\mingw64\bin` (copied from Laptop 1) |
+| GCC / G++ | 16.1.0 (MinGW-W64 x86_64-ucrt-posix-seh, Brecht Sanders, r4) | WinLibs via winget (`BrechtSanders.WinLibs.POSIX.UCRT`) | `C:\Users\ahsan\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin` | `D:\Tools\mingw64\bin` |
 | GDB | 17.2 | Bundled with WinLibs | Same `mingw64\bin` | Same `mingw64\bin` |
 | Ninja | 1.13.2 | Bundled with WinLibs | Same `mingw64\bin` | Same `mingw64\bin` |
 | CMake | 4.4.3 | Kitware via winget (`Kitware.CMake`) | `C:\Program Files\CMake\bin` | `C:\Program Files\CMake\bin` |
-| clang-format / clangd | 22.1.8 (editor tooling only; never used to compile) | LLVM via winget (`LLVM.LLVM`) | `C:\Program Files\LLVM\bin` | TBD |
+| clang-format / clangd | 22.1.8 (editor tooling only; never used to compile) | LLVM via winget (`LLVM.LLVM`) | `C:\Program Files\LLVM\bin` | `C:\Program Files\LLVM\bin` |
 
 - WinLibs also bundles its own `cmake.exe`, but it is **not used**. Kitware CMake is in the system PATH, which Windows searches before the user PATH, so Kitware's copy takes priority. Confirm with `where.exe cmake` (Kitware's path must be listed first).
 - Laptop 2 receives a byte-identical compiler by copying the whole `mingw64` folder from Laptop 1.
@@ -124,21 +122,21 @@ Laptop 1's system Python also has copies of ruff 0.16.5 and pyrefly 1.2.0. The p
 
 | Setting | Laptop 1 | Laptop 2 |
 |---|---|---|
-| Power plan | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) | TBD |
-| Power mode (Settings) | Best performance | TBD |
+| Power plan | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) |
+| Power mode (Settings) | Best performance | Best performance |
 | Manufacturer performance profile | Dell Thermal Management: Ultra Performance (`UltraPerformance`, set in BIOS / Dell Command \| Configure) | TBD |
-| Sleep on AC | Disabled | TBD |
-| Defender exclusion | `C:\University\connect-more` | TBD |
-| sshd service | Automatic, running | TBD |
+| Sleep on AC | Disabled | Disabled |
+| Defender exclusion | `C:\University\connect-more` | `D:\University\connect-more` |
+| sshd service | Automatic, running | Automatic, running |
 | HWiNFO logging interval | 1000 ms (verified: rows ~1.0 s apart) | Same (copy `HWiNFO64.INI`) |
 
 ### Firewall rules (Private profile only)
 
 | Rule | Port / protocol | Laptop 1 | Laptop 2 |
 |---|---|---|---|
-| ConnectFour Distributed Solver (TCP-5555) | TCP 5555 | ✅ | TBD |
-| iperf3 (TCP-5201) | TCP 5201 | ✅ | TBD |
-| Allow Ping (Private) | ICMPv4 echo request | ✅ | TBD |
+| ConnectFour Distributed Solver (TCP-5555) | TCP 5555 | ✅ | ✅ |
+| iperf3 (TCP-5201) | TCP 5201 | ✅ | ✅ |
+| Allow Ping (Private) | ICMPv4 echo request | ✅ | ✅ |
 
 ---
 
@@ -173,10 +171,10 @@ Key columns for analysis: `Core Clocks (avg)`, `Average Effective Clock`, per-co
 | C++20 build (`uint64_t`, builtins, `<bit>`, 4 × `std::thread`), fully static | ✅ Passed | TBD |
 | ZeroMQ REQ/REP, 1,000 messages on localhost | ✅ 80.44 µs average round trip | TBD |
 | pytest | ✅ Passed (2.07 s) | TBD |
-| Cross-laptop ZeroMQ over cable | — | TBD |
-| Cross-laptop ZeroMQ over Wi-Fi | — | TBD |
-| iperf3 over cable | — | TBD |
-| iperf3 over Wi-Fi | — | TBD |
+| Cross-laptop ZeroMQ over cable | — | — |
+| Cross-laptop ZeroMQ over Wi-Fi | — | — |
+| iperf3 over cable | — | — |
+| iperf3 over Wi-Fi | — | — |
 
 ---
 
@@ -225,3 +223,4 @@ git --version
 | 2026-10-03 | Both | Build settings table corrected to match `CMakeLists.txt` (added `-mtune=generic` and the full warning list); recorded Laptop 2 OS as Windows 11 |
 | 2026-10-03 | Laptop 1 | Recorded LLVM 22.1.8 (clangd, clang-format) and pinned it in winget; added `.clang-format` and `.editorconfig`; C++ now formats on save in Zed and VS Code |
 | 2026-10-04 | Laptop 1 | Corrected Coreinfo version to 4.02 (file version of the installed copy); recorded PowerShell 7.6.6.0 and VS Code 1.140.0 |
+| 2026-10-05 | Laptop 2 | Initial setup completed (admin script run clean; user script run clean). Hardware and toolchain recorded. Power-mode, manufacturer performance profile, and cable network steps still pending manual completion. |
