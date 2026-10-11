@@ -124,7 +124,7 @@ Laptop 1's system Python also has copies of ruff 0.16.5 and pyrefly 1.2.0. The p
 |---|---|---|
 | Power plan | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) |
 | Power mode (Settings) | Best performance | Best performance |
-| Manufacturer performance profile | Dell Thermal Management: Ultra Performance (`UltraPerformance`, set in BIOS / Dell Command \| Configure) | TBD |
+| Manufacturer performance profile | Dell Thermal Management: Ultra Performance (`UltraPerformance`, set in BIOS / Dell Command \| Configure) | None (no maker performance tool; Windows power mode "Best performance" is the setting) |
 | Sleep on AC | Disabled | Disabled |
 | Defender exclusion | `C:\University\connect-more` | `D:\University\connect-more` |
 | sshd service | Automatic, running | Automatic, running |
@@ -224,3 +224,4 @@ git --version
 | 2026-10-03 | Laptop 1 | Recorded LLVM 22.1.8 (clangd, clang-format) and pinned it in winget; added `.clang-format` and `.editorconfig`; C++ now formats on save in Zed and VS Code |
 | 2026-10-04 | Laptop 1 | Corrected Coreinfo version to 4.02 (file version of the installed copy); recorded PowerShell 7.6.6.0 and VS Code 1.140.0 |
 | 2026-10-05 | Laptop 2 | Initial setup completed (admin script run clean; user script run clean). Hardware and toolchain recorded. Power-mode, manufacturer performance profile, and cable network steps still pending manual completion. |
+| 2026-10-11 | Laptop 2 | Confirmed power mode "Best performance"; no manufacturer performance profile is available. Repo is at `D:\University\connect-more`, tools in `D:\Tools` |
