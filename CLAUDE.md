@@ -88,12 +88,12 @@ Some folders may not exist yet; create them only when a task needs them.
 
 | | Laptop 1 | Laptop 2 |
 |---|---|---|
-| Machine | Dell Precision 5570 | (setup pending) |
-| CPU | i7-12800H: 6 P-cores (HT) + 8 E-cores, 20 threads | i5 8th gen, 4 cores / 8 threads |
-| RAM | 32 GB DDR5-4800 | 16 GB DDR4 |
-| OS | Windows 11 Pro 26H2 (build 26300.x) | Windows 11 25H2 |
-| Power | Best performance, Dell "Ultra Performance"; PL1 dynamic 40 W, PL2 115 W | TBD |
-| Repo path | `C:\University\connect-more` | same |
+| Machine | Dell Precision 5570 | HP EliteBook 840 G5 |
+| CPU | i7-12800H: 6 P-cores (HT) + 8 E-cores, 20 threads | i5-8350U (8th gen): 4 cores (HT), 8 threads |
+| RAM | 32 GB DDR5-4800 | 16 GB DDR4-2400 |
+| OS | Windows 11 Pro 26H2 (build 26300.x) | Windows 11 Pro 25H2 (build 26200.x) |
+| Power | Best performance, Dell "Ultra Performance"; PL1 dynamic 40 W, PL2 115 W | Best performance (no maker performance profile); PL1 18 W, PL2 44 W |
+| Repo path | `C:\University\connect-more` | `D:\University\connect-more` (tools in `D:\Tools`) |
 | Cable IP | 192.168.2.1/24 | 192.168.2.2/24 |
 
 Toolchain (identical on both): **WinLibs GCC 16.1.0** (UCRT, POSIX threads, r4), **CMake 4.4.3** (Kitware, first on PATH), **Ninja 1.13.2**, GDB 17.2, **LLVM 22.1.8** (clangd + clang-format, editor tooling only), **uv 0.12.8**, **Python 3.12.13** (uv-managed). Messaging port: **TCP 5555** (firewall: Private profile only). HWiNFO64 logs sensors every 1000 ms.
