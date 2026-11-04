@@ -364,7 +364,7 @@ Each test file is its own small program that returns 0 if everything passes. Run
 
 **Data checks (run automatically by the build):**
 - `tests/data/7x6/`: Pons's six files. Must give **0 wrong answers** on **both** laptops.
-- `tests/data/<small size>/`: the empty board for 3 or 4 small sizes, with results from Tromp's table (tromp.github.io/c4/c4.html). Agree how the empty position is written in these files (for example, a dash) and make verify mode understand it. To build small sizes, use the one-off configure in `CLAUDE.md` Section 5; it does not change the default size.
+- `tests/data/<small size>/`: the empty board for 3 or 4 small sizes, with results from Tromp's table (tromp.github.io/c4/c4.html). The empty position is written as a dash (`-`). The sizes are 4x4, 6x4 and 6x6; build and check them with `cmake --workflow --preset small-boards`, which does not change the default size. Sources are listed in `tests/data/README.md`.
 
 ---
 

@@ -108,8 +108,9 @@ cmake --workflow --preset release      # configure + build + test (use for exper
 cmake --preset debug && cmake --build --preset debug && ctest --preset debug
 ctest --preset release-unit            # fast unit tests only
 ctest --preset release-verify          # solve known positions and compare
+cmake --workflow --preset small-boards  # build and check 4x4, 6x4, 6x6 against Tromp's table
 ```
-Binaries: `build/<preset>/bin/` (e.g. `build/release/bin/c4solve_7x6.exe`). Board sizes come from `CM_BOARD_VARIANTS`. **Which sizes the project uses is not decided yet**; until then `CMakeLists.txt` defaults to `7x6` and the presets do not set it. Do not change this without asking. For a one-off build of other sizes: `cmake --preset debug "-DCM_BOARD_VARIANTS=7x6;6x7;6x5;5x4;4x4"`. The first configure prints a summary; it must show `GNU 16.1.0` and `Thread model: posix`.
+Binaries: `build/<preset>/bin/` (e.g. `build/release/bin/c4solve_7x6.exe`). Board sizes come from `CM_BOARD_VARIANTS`. **The project uses 7x6 for all experiments**, plus 4x4, 6x4 and 6x6 for correctness checks against Tromp's table (see `solver/tests/data/README.md`). `CMakeLists.txt` defaults to `7x6`; the `small-boards` preset builds the three small sizes in `build/small-boards/` (`cmake --workflow --preset small-boards`). Do not change either without asking. For a one-off build of other sizes: `cmake --preset debug "-DCM_BOARD_VARIANTS=7x6;6x7;6x5;5x4;4x4"`. The first configure prints a summary; it must show `GNU 16.1.0` and `Thread model: posix`.
 
 ### Python (always through uv)
 ```bash
