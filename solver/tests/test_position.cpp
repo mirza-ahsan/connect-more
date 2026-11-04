@@ -551,12 +551,13 @@ void testPonsFiles()
 
             Board board;
             std::string error;
-            if (!board.updateBoard(moves, &error))
+            if (!board.updateBoard(moves == "-" ? "" : moves, &error))  // "-" is the empty board
             {
                 check(false, name + ": position rejected: " + error);
                 continue;
             }
-            check(board.moveCount() == static_cast<int>(moves.size()), "move count wrong for " + moves);
+            check(board.moveCount() == (moves == "-" ? 0 : static_cast<int>(moves.size())),
+                  "move count wrong for " + moves);
 
             bool can_win = false;
             for (int col = 0; col < W; col++)
