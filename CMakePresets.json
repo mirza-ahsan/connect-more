@@ -3,7 +3,8 @@
   "cmakeMinimumRequired": { "major": 4, "minor": 4, "patch": 0 },
   "$comment": [
     "Build presets for connect-more. Experiments use ONLY the 'release' preset, on both laptops.",
-    "Run: cmake --workflow --preset release   (configure + build + all tests)"
+    "Run: cmake --workflow --preset release   (configure + build + all tests)",
+    "Small boards (checked against Tromp's table): cmake --workflow --preset small-boards"
   ],
   "configurePresets": [
     {
@@ -28,6 +29,15 @@
         "CM_STATIC": "ON",
         "CM_ENABLE_LTO": "OFF",
         "CM_DEFAULT_TT_MB": "1024"
+      }
+    },
+    {
+      "name": "small-boards",
+      "displayName": "Release, small boards (correctness checks)",
+      "description": "Same settings as release, but builds the small boards checked against Tromp's table instead of 7x6. Not for experiment results.",
+      "inherits": "release",
+      "cacheVariables": {
+        "CM_BOARD_VARIANTS": "4x4;6x4;6x6"
       }
     },
     {
@@ -61,6 +71,7 @@
   ],
   "buildPresets": [
     { "name": "release", "configurePreset": "release" },
+    { "name": "small-boards", "configurePreset": "small-boards" },
     { "name": "debug", "configurePreset": "debug" },
     { "name": "debug-ubsan", "configurePreset": "debug-ubsan" },
     { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo" }
@@ -86,6 +97,7 @@
       "configurePreset": "release",
       "filter": { "include": { "label": "verify" } }
     },
+    { "name": "small-boards", "inherits": "test-base", "configurePreset": "small-boards" },
     { "name": "debug", "inherits": "test-base", "configurePreset": "debug" },
     { "name": "debug-ubsan", "inherits": "test-base", "configurePreset": "debug-ubsan" },
     { "name": "relwithdebinfo", "inherits": "test-base", "configurePreset": "relwithdebinfo" }
@@ -97,6 +109,14 @@
         { "type": "configure", "name": "release" },
         { "type": "build", "name": "release" },
         { "type": "test", "name": "release" }
+      ]
+    },
+    {
+      "name": "small-boards",
+      "steps": [
+        { "type": "configure", "name": "small-boards" },
+        { "type": "build", "name": "small-boards" },
+        { "type": "test", "name": "small-boards" }
       ]
     }
   ]
