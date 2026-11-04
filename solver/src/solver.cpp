@@ -32,13 +32,16 @@ Solver::Solver(TranspositionTable& shared_table) : table(shared_table) {}
 
 SolveResult Solver::solve(const Board& board, const std::atomic<bool>* stop)
 {
-    positions = 0;
+    const std::uint64_t before = positionsSearched();
     stop_flag = stop;
     stopped = false;
+    auto finish = [&](bool was_stopped, Outcome outcome) -> SolveResult
+    { return {was_stopped, outcome, positionsSearched() - before}; };
 
     if (board.canWinNext())
     {
-        return {false, Outcome::Win, 1};
+        countPosition();
+        return finish(false, Outcome::Win);
     }
 
     // Weak solving with null windows (Pons part 8): first "is the score above 0?", then, if not,
@@ -46,28 +49,28 @@ SolveResult Solver::solve(const Board& board, const std::atomic<bool>* stop)
     int result = negamax(board, 0, 1);
     if (stopped)
     {
-        return {true, Outcome::Draw, positions};
+        return finish(true, Outcome::Draw);
     }
     if (result > 0)
     {
-        return {false, Outcome::Win, positions};
+        return finish(false, Outcome::Win);
     }
     if (result < 0)
     {
-        return {false, Outcome::Loss, positions};
+        return finish(false, Outcome::Loss);
     }
 
     result = negamax(board, -1, 0);
     if (stopped)
     {
-        return {true, Outcome::Draw, positions};
+        return finish(true, Outcome::Draw);
     }
-    return {false, result < 0 ? Outcome::Loss : Outcome::Draw, positions};
+    return finish(false, result < 0 ? Outcome::Loss : Outcome::Draw);
 }
 
 int Solver::negamax(const Board& board, int alpha, int beta)
 {
-    positions++;
+    countPosition();
 
     // Stopped from outside: return at once. Every caller checks `stopped` before storing anything.
     if (stop_flag != nullptr && stop_flag->load(std::memory_order_relaxed))

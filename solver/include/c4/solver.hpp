@@ -37,11 +37,26 @@ public:
     // stopped search stores nothing in the table, because its half-finished values are wrong.
     SolveResult solve(const Board& board, const std::atomic<bool>* stop = nullptr);
 
+    // Positions searched by this solver since it was created, over all solves. Safe to read from
+    // another thread while a search is running (used for progress reports).
+    std::uint64_t positionsSearched() const
+    {
+        return searched.load(std::memory_order_relaxed);
+    }
+
 private:
     TranspositionTable& table;
-    std::uint64_t positions = 0;
     const std::atomic<bool>* stop_flag = nullptr;
     bool stopped = false;
+
+    // Only this solver's thread writes it, so a relaxed load and store is enough (no locked add).
+    // Kept on its own cache line so threads reading it don't slow down a neighbouring solver.
+    alignas(64) std::atomic<std::uint64_t> searched{0};
+
+    void countPosition()
+    {
+        searched.store(searched.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    }
 
     // Pons's negamax with alpha-beta: the result is exact inside (alpha, beta); otherwise it is
     // an upper bound (at most alpha) or a lower bound (at least beta).
