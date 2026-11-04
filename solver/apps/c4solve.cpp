@@ -2,8 +2,8 @@
 //
 //   c4solve --verify <file> [--threads N] [--table-mb N]
 //       Solves every position in a test file ("moves score" per line) and compares win/draw/loss
-//       with the sign of the score. All threads share one table, as in a real run. Exits with 1 if
-//       any answer is wrong or any line is invalid.
+//       with the sign of the score, using the task pool: all threads share one table, as in a real
+//       run. Exits with 1 if any answer is wrong or any line is invalid.
 //
 //   c4solve --single <moves> [--table-mb N]
 //       Solves one position on one thread with an empty table, and prints the positions searched.
@@ -30,6 +30,7 @@
 
 #include "c4/position.hpp"
 #include "c4/solver.hpp"
+#include "c4/task_pool.hpp"
 #include "c4/transposition_table.hpp"
 #include "cm/build_info.hpp"
 
@@ -231,52 +232,51 @@ int runVerify(const Options& options, TranspositionTable& table, int threads)
         lines.push_back(line);
     }
 
-    // Threads take the next unsolved line until none are left.
+    // Every line is a task in the task pool, as in a real run. The task id is the line's index.
     std::vector<double> seconds(lines.size());
     std::vector<std::uint64_t> searched(lines.size());
-    std::atomic<std::size_t> next{0};
-    std::atomic<std::size_t> done{0};
-    std::atomic<int> wrong{0};
-    std::mutex output;
+    std::size_t done = 0;
+    int wrong = 0;
+    std::mutex output;  // guards the counters above and both output streams
+
+    auto on_event = [&](const TaskEvent& event)
+    {
+        const std::lock_guard<std::mutex> lock(output);
+        if (event.type == TaskEvent::Type::Progress)
+        {
+            // Progress goes to the error stream, so the log stays clean.
+            std::cerr << "  " << done << " / " << lines.size() << " solved, " << event.positions
+                      << " positions searched, " << std::fixed << std::setprecision(1) << event.time
+                      << " s\n";
+            return;
+        }
+        if (event.type == TaskEvent::Type::Started)
+        {
+            return;
+        }
+
+        const std::size_t i = std::stoul(event.task_id);
+        seconds[i] = event.seconds;
+        searched[i] = event.positions;
+        done++;
+        if (event.type != TaskEvent::Type::Result || event.outcome != lines[i].expected)
+        {
+            wrong++;
+            std::cout << "wrong line " << lines[i].line_number << ": " << lines[i].moves << " expected "
+                      << outcomeName(lines[i].expected) << ", got "
+                      << (event.type == TaskEvent::Type::Result ? outcomeName(event.outcome) : "no result")
+                      << '\n';
+        }
+    };
 
     const Clock::time_point start = Clock::now();
-    std::vector<std::thread> workers;
-    for (int t = 0; t < threads; t++)
     {
-        workers.emplace_back(
-            [&]
-            {
-                Solver solver(table);
-                for (std::size_t i = next++; i < lines.size(); i = next++)
-                {
-                    const Clock::time_point solve_start = Clock::now();
-                    const SolveResult result = solver.solve(lines[i].board);
-                    seconds[i] = secondsSince(solve_start);
-                    searched[i] = result.positions;
-
-                    if (result.stopped || result.outcome != lines[i].expected)
-                    {
-                        wrong++;
-                        const std::lock_guard<std::mutex> lock(output);
-                        std::cout << "wrong line " << lines[i].line_number << ": " << lines[i].moves
-                                  << " expected " << outcomeName(lines[i].expected) << ", got "
-                                  << (result.stopped ? "stopped" : outcomeName(result.outcome)) << '\n';
-                    }
-
-                    // Progress on the error stream every tenth of the file, so the log stays clean.
-                    const std::size_t finished = ++done;
-                    if (finished % std::max<std::size_t>(1, lines.size() / 10) == 0)
-                    {
-                        const std::lock_guard<std::mutex> lock(output);
-                        std::cerr << "  " << finished << " / " << lines.size() << " solved, " << std::fixed
-                                  << std::setprecision(1) << secondsSince(start) << " s\n";
-                    }
-                }
-            });
-    }
-    for (std::thread& worker : workers)
-    {
-        worker.join();
+        TaskPool pool(table, threads, on_event, std::chrono::seconds(10));
+        for (std::size_t i = 0; i < lines.size(); i++)
+        {
+            pool.submit(std::to_string(i), lines[i].board);
+        }
+        pool.waitUntilIdle();
     }
     const double total_seconds = secondsSince(start);
 
