@@ -84,10 +84,10 @@ public:
         return heights[col] < H;
     }
 
-    bool winsNow(int col) const
+    // True if a stone of `player` in the empty cell (col, row) would make four in a row,
+    // whether or not the cell can be played yet.
+    bool completesFour(int col, int row, int player) const
     {
-        const int row = heights[col];
-        const int player = toMove();
         const int directions[4][2] = {{0, 1}, {1, 0}, {1, 1}, {1, -1}};
         for (const auto& d : directions)
         {
@@ -99,6 +99,57 @@ public:
             }
         }
         return false;
+    }
+
+    bool winsNow(int col) const
+    {
+        return completesFour(col, heights[col], toMove());
+    }
+
+    bool canWinNext() const
+    {
+        for (int col = 0; col < W; col++)
+        {
+            if (canPlay(col) && winsNow(col))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // True if playing this column does not let the opponent win straight after.
+    bool isSafe(int col) const
+    {
+        GridBoard after = *this;
+        after.play(col);
+        return !after.canWinNext();
+    }
+
+    // Empty cells (at any height) where the player to move would complete four after playing col.
+    int moveScore(int col) const
+    {
+        const int player = toMove();
+        GridBoard after = *this;
+        after.cells[col][after.heights[col]] = player;
+        after.heights[col]++;
+        int count = 0;
+        for (int c = 0; c < W; c++)
+        {
+            for (int r = 0; r < H; r++)
+            {
+                if (after.cells[c][r] == 0 && after.completesFour(c, r, player))
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    int height(int col) const
+    {
+        return heights[col];
     }
 
     void play(int col)
@@ -181,6 +232,16 @@ void testHandMadeWins()
 
     // The winning move itself is accepted, for either player.
     check(fromMoves("1212121").moveCount() == 7, "first player's winning move is accepted");
+    check(fromMoves("1212121").gameOver(), "a winning move ends the game");
+
+    // Safe moves: one threat must be blocked; two threats cannot both be blocked.
+    check(fromMoves("11223").nonLosingMoves() == Board::bottomBit(3),
+          "single threat: only the block is safe");
+    check(fromMoves("44556").nonLosingMoves() == 0, "two threats: every move loses");
+    check(fromMoves("44556").canWinNext() == false && fromMoves("4455").canWinNext() == false,
+          "canWinNext false without three in a row");
+    check(fromMoves("445566").canWinNext(), "canWinNext finds a winning move");
+    check(!fromMoves("121212").gameOver(), "game not over before the winning move");
     check(fromMoves("31212121").moveCount() == 8, "second player's winning move is accepted");
 }
 
@@ -283,6 +344,8 @@ void testAgainstGridBoard()
     std::map<std::uint64_t, std::pair<std::uint64_t, std::uint64_t>> key_to_position;
     std::map<std::pair<std::uint64_t, std::uint64_t>, std::uint64_t> position_to_key;
     int mismatches = 0;
+    int lost_positions = 0;        // every move lets the opponent win
+    int restricted_positions = 0;  // some moves, but not all, let the opponent win
     const int games = 20000;
 
     for (int game = 0; game < games && mismatches < 20; game++)
@@ -342,6 +405,54 @@ void testAgainstGridBoard()
                 }
             }
 
+            // Playable cells, winning chances and moves that don't lose at once (Pons parts 9, 10).
+            const std::uint64_t possible = board.possible();
+            for (int col = 0; col < W; col++)
+            {
+                const std::uint64_t expected =
+                    grid.canPlay(col) ? Board::bottomBit(col) << grid.height(col) : 0;
+                if ((possible & Board::columnMask(col)) != expected)
+                {
+                    report("possible() wrong in column " + std::to_string(col));
+                }
+            }
+            if (board.canWinNext() != grid.canWinNext())
+            {
+                report("canWinNext differs");
+            }
+            if (!grid.canWinNext())
+            {
+                const std::uint64_t non_losing = board.nonLosingMoves();
+                if ((non_losing & ~possible) != 0)
+                {
+                    report("nonLosingMoves gives a cell that cannot be played");
+                }
+                if (non_losing == 0)
+                {
+                    lost_positions++;
+                }
+                else if (non_losing != possible)
+                {
+                    restricted_positions++;
+                }
+
+                for (int col = 0; col < W; col++)
+                {
+                    if (!grid.canPlay(col))
+                    {
+                        continue;
+                    }
+                    if (((non_losing & Board::columnMask(col)) != 0) != grid.isSafe(col))
+                    {
+                        report("nonLosingMoves differs in column " + std::to_string(col));
+                    }
+                    if (board.moveScore(possible & Board::columnMask(col)) != grid.moveScore(col))
+                    {
+                        report("moveScore differs in column " + std::to_string(col));
+                    }
+                }
+            }
+
             if (playable.empty())
             {
                 check(board.moveCount() == W * H, "no playable column before the board is full");
@@ -385,6 +496,12 @@ void testAgainstGridBoard()
     }
 
     check(key_to_position.size() > 1000, "random games reached enough different positions");
+    if (W >= 4 && H >= 4)
+    {
+        // Make sure both special cases of nonLosingMoves were actually compared.
+        check(lost_positions > 100 && restricted_positions > 100,
+              "random games reached too few positions with losing moves");
+    }
 }
 
 // Pons's files: "moves score" per line. The player to move can win with their next stone exactly
