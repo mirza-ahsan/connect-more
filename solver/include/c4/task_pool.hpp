@@ -92,6 +92,9 @@ public:
     };
     std::vector<ThreadStats> threadStats() const;
 
+    // Seconds since the pool started: the clock used for every event's `time`.
+    double secondsSinceStart() const;
+
 private:
     enum class Request
     {
@@ -141,7 +144,6 @@ private:
     std::thread progress_thread;
     std::mutex shutdown_mutex;
 
-    double secondsSinceStart() const;
     bool endTask(const std::string& task_id, Request request);
 
     // Called after a task's final event is reported; wakes waitUntilIdle() when nothing is left.
