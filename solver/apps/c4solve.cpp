@@ -9,6 +9,10 @@
 //       Solves one position on one thread with an empty table, and prints the positions searched.
 //       This is the "unsplit" reference count for the experiments.
 //
+//   c4solve [--threads N] [--table-mb N]
+//       Service mode, used by the worker in every experiment run: reads commands from standard
+//       input and answers on standard output, as described in docs/protocol.md.
+//
 // A move string of "-" stands for the empty board. Every run first prints the build information,
 // board size, table size and thread count, so each result can be traced to the exact code.
 
@@ -16,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <fstream>
 #include <iomanip>
@@ -29,10 +34,16 @@
 #include <vector>
 
 #include "c4/position.hpp"
+#include "c4/protocol.hpp"
 #include "c4/solver.hpp"
 #include "c4/task_pool.hpp"
 #include "c4/transposition_table.hpp"
 #include "cm/build_info.hpp"
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 namespace
 {
@@ -41,9 +52,9 @@ using Clock = std::chrono::steady_clock;
 
 struct Options
 {
-    std::string mode;      // "verify" or "single"
-    std::string argument;  // the test file or the move string
-    int threads = 0;       // 0 means one per logical processor
+    std::string mode = "service";  // "service", "verify" or "single"
+    std::string argument;          // the test file or the move string; empty in service mode
+    int threads = 0;               // 0 means one per logical processor
     std::size_t table_mb = CM_DEFAULT_TT_MB;
 };
 
@@ -52,6 +63,7 @@ void printUsage()
     std::cerr << "usage:\n"
                  "  c4solve --verify <file> [--threads N] [--table-mb N]\n"
                  "  c4solve --single <moves> [--table-mb N]\n"
+                 "  c4solve [--threads N] [--table-mb N]     (service mode, see docs/protocol.md)\n"
                  "A move string of \"-\" is the empty board.\n";
 }
 
@@ -70,7 +82,7 @@ std::optional<Options> parseArgs(int argc, char** argv)
 
         if (arg == "--verify" || arg == "--single")
         {
-            if (!options.mode.empty())
+            if (options.mode != "service")
             {
                 std::cerr << "give only one of --verify and --single\n";
                 return std::nullopt;
@@ -111,11 +123,6 @@ std::optional<Options> parseArgs(int argc, char** argv)
         }
     }
 
-    if (options.mode.empty())
-    {
-        std::cerr << "give --verify or --single\n";
-        return std::nullopt;
-    }
     if (options.mode == "single" && options.threads > 1)
     {
         std::cerr << "--single always uses one thread\n";
@@ -165,8 +172,16 @@ void printHeader(const Options& options, const TranspositionTable& table, int th
               << "# board " << C4_VARIANT << '\n'
               << "# table " << options.table_mb << " MB, " << table.size() << " slots\n"
               << "# threads " << threads << '\n'
-              << "# mode " << options.mode << ' ' << options.argument << '\n'
+              << "# mode " << options.mode << (options.argument.empty() ? "" : " ") << options.argument
+              << '\n'
               << std::flush;
+}
+
+int runService(const Options& options, TranspositionTable& table, int threads)
+{
+    auto read_line = [](std::string& line) { return static_cast<bool>(std::getline(std::cin, line)); };
+    auto write_line = [](const std::string& line) { std::cout << line << '\n' << std::flush; };
+    return protocol::serve(table, threads, options.table_mb, read_line, write_line);
 }
 
 struct TestLine
@@ -337,23 +352,39 @@ int main(int argc, char** argv)
     const Options& options = *parsed;
 
     int threads = 1;
-    if (options.mode == "verify")
+    if (options.mode != "single")
     {
         threads =
             options.threads > 0 ? options.threads : static_cast<int>(std::thread::hardware_concurrency());
         threads = std::max(threads, 1);
     }
 
+#ifdef _WIN32
+    // Plain "\n" line ends on the pipe, as docs/protocol.md says, instead of Windows' "\r\n".
+    if (options.mode == "service")
+    {
+        _setmode(_fileno(stdout), _O_BINARY);
+    }
+#endif
+
     try
     {
         // Allocated before anything is timed: a 1 GB table takes a moment.
         TranspositionTable table(options.table_mb);
         printHeader(options, table, threads);
-        return options.mode == "verify" ? runVerify(options, table, threads) : runSingle(options, table);
+        if (options.mode == "verify")
+        {
+            return runVerify(options, table, threads);
+        }
+        if (options.mode == "single")
+        {
+            return runSingle(options, table);
+        }
+        return runService(options, table, threads);
     }
     catch (const std::exception& e)
     {
-        std::cout << "error " << e.what() << '\n';
+        std::cout << protocol::errorLine("", e.what()) << '\n';
         return 2;
     }
 }
