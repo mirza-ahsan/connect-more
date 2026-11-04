@@ -92,8 +92,8 @@ bye 3.501
 
 | `type` | Other fields | When |
 |---|---|---|
-| `hello` | `worker` (name, for example `"laptop2"`), `threads`, `board`, `table_mb`, `commit`, `dirty`, `wall_time` (seconds since 1970), `mono_time` | Once, after the worker's solver has said `ready` |
-| `give_me_work` | `free` (how many more tasks it can take now) | Whenever it has room. A worker never holds more than one waiting task per thread, so `free` is never more than that |
+| `hello` | `worker` (name, for example `"laptop2"`), `threads`, `board`, `table_mb`, `commit`, `dirty`, `wall_time` (seconds since 1970), `mono_time` (the worker's steady clock) | Once, after the worker's solver has said `ready`. Both clocks are read at the moment `ready` arrived; the solver's `time` values count from that same moment, so `mono_time + time` puts any task event on the worker's steady clock |
+| `give_me_work` | `free`: how many **more** tasks the coordinator may send, on top of any it has sent already (a credit) | First right after `welcome`, with `free` = 2 × threads (one running and one waiting task per thread). Then `free` = 1 each time a task ends (result, stopped, cancelled, or an error for that task). The coordinator adds the credits up and never sends more tasks than the credit allows, so a worker never holds more than one waiting task per thread |
 | `started` | `task_id`, `thread`, `time` | Passed on from the solver |
 | `result` | `task_id`, `outcome` (`"win"`, `"draw"`, `"loss"`), `positions`, `seconds`, `time` | Passed on from the solver |
 | `stopped` | `task_id`, `positions`, `seconds`, `time` | Passed on from the solver |
@@ -107,8 +107,8 @@ bye 3.501
 | `type` | Other fields | When |
 |---|---|---|
 | `welcome` | `worker`, `run_id`, `strategy` (`"V0"` … `"V3"`) | Reply to `hello` |
-| `task` | `task_id`, `moves` | Reply to `give_me_work`; one message per task |
-| `no_work` | — | Reply to `give_me_work` when nothing is available right now. The worker asks again later, or when told to |
+| `task` | `task_id`, `moves` (`""` for the empty board) | One message per task, only while the worker has credit. A task beyond the credit is refused with `error` |
+| `no_work` | — | For information only: the coordinator has the worker's credit but no task right now. It keeps the credit and sends tasks as soon as some are available, so the worker never needs to ask again |
 | `stop` | `task_id` | Split a running task (V2 and V3) |
 | `cancel` | `task_id` | The task's answer is no longer needed |
 | `clock_check` | `check_id`, `sent_time` | A few times per run. The coordinator measures the round trip, which is also our network delay measurement, and the gap between the two laptops' clocks |
@@ -129,4 +129,4 @@ bye 3.501
 ## Open questions for the group
 1. **V3, sharing solved results:** the coordinator will need a way to send a known answer to the other laptop's solver, and the solver a command to accept it. That's left for when V3 is built, and will raise the version to 2.
 2. **Who gives task ids:** this draft says the coordinator does (for example `t1`, `t2`, …), so ids are unique across both laptops.
-3. **`free` in `give_me_work`:** this draft lets a worker hold up to one waiting task per thread, on top of the running ones, so a thread never sits idle while a new task travels over the network. Agree this is what "one waiting task per thread" in the work plan means.
+3. **`free` in `give_me_work`:** settled as a credit (see the table): a worker holds at most one running and one waiting task per thread, so a thread never sits idle while a new task travels over the network.
