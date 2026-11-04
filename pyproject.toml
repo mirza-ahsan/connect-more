@@ -48,3 +48,7 @@ select = [
 [tool.pyrefly]
 python-version = "3.12"
 project-excludes = ["deliverables/**", "build/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]  # so tests can import common/, coordinator/ and worker/ from the repo root
