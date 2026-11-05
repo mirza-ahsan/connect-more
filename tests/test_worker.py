@@ -4,7 +4,6 @@ that the worker is responsible for."""
 
 import json
 import subprocess
-import sys
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -13,10 +12,9 @@ import pytest
 import zmq
 
 from common import messages as m
+from tests.helpers import needs_solver, start_worker
 
-ROOT = Path(__file__).resolve().parent.parent
-SOLVER = ROOT / "build/release/bin/c4solve_7x6.exe"
-pytestmark = pytest.mark.skipif(not SOLVER.exists(), reason="build the release preset first")
+pytestmark = needs_solver()
 
 THREADS = 2
 CAPACITY = 2 * THREADS
@@ -79,29 +77,7 @@ def credit(received: list[m.Message]) -> int:
 @pytest.fixture
 def run(tmp_path: Path) -> Iterator[tuple[FakeCoordinator, subprocess.Popen[str], Path]]:
     coordinator = FakeCoordinator()
-    worker = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "worker",
-            "--coordinator",
-            "127.0.0.1",
-            "--port",
-            str(coordinator.port),
-            "--name",
-            "testworker",
-            "--threads",
-            str(THREADS),
-            "--table-mb",
-            "64",
-            "--log-dir",
-            str(tmp_path),
-        ],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    worker = start_worker("testworker", coordinator.port, tmp_path, threads=THREADS, table_mb=64)
     try:
         yield coordinator, worker, tmp_path
     finally:

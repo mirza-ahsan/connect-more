@@ -1,14 +1,11 @@
 """Tests for worker/solver.py: reading the solver's answer lines, and driving a real c4solve."""
 
 import queue
-from pathlib import Path
 
 import pytest
 
+from tests.helpers import SOLVERS, needs_solver
 from worker import solver as s
-
-SOLVER = Path(__file__).resolve().parent.parent / "build/release/bin/c4solve_7x6.exe"
-needs_solver = pytest.mark.skipif(not SOLVER.exists(), reason="build the release preset first")
 
 
 @pytest.mark.parametrize(
@@ -62,10 +59,10 @@ def collect_until(
             return seen
 
 
-@needs_solver
+@needs_solver()
 def test_real_solver_session() -> None:
     answers: queue.Queue[s.Answer] = queue.Queue()
-    solver = s.SolverProcess(SOLVER, answers.put, threads=2, table_mb=64)
+    solver = s.SolverProcess(SOLVERS["7x6"], answers.put, threads=2, table_mb=64)
 
     start = collect_until(answers, s.Ready)
     assert start[-1] == s.Ready(1, "7x6", 2, 64)
