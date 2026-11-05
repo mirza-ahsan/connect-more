@@ -40,6 +40,7 @@ from pathlib import Path
 import zmq
 
 from common import messages as m
+from common.build import git_state
 from common.runlog import LOGS_DIR, RunLog, log_path
 from coordinator.board import Position as Board
 from coordinator.calibration import Calibration, CalibrationError
@@ -197,6 +198,7 @@ class Coordinator:
             tasks=self.tasks_at_start,
             copied_tasks=self.copied_tasks,
             already_decided=self.tree.result,
+            repository=git_state(),  # the Python code in use (the solvers say their own)
         )
 
     # --- Sending --------------------------------------------------------------------------
