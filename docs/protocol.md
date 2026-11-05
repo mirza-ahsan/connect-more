@@ -127,6 +127,6 @@ bye 3.501
 ---
 
 ## Open questions for the group
-1. **V3, sharing solved results:** the coordinator will need a way to send a known answer to the other laptop's solver, and the solver a command to accept it. That's left for when V3 is built, and will raise the version to 2.
+1. **V3, sharing solved results:** settled without a protocol change. The coordinator keeps every answer it receives and passes it on to the copies of that position in its own task tree; a task whose position is already being solved is held back and gets that answer, and a known position is never sent. No answer is sent into a solver's table, so the version stays 1.
 2. **Who gives task ids:** this draft says the coordinator does (for example `t1`, `t2`, …), so ids are unique across both laptops.
 3. **`free` in `give_me_work`:** settled as a credit (see the table): a worker holds at most one running and one waiting task per thread, so a thread never sits idle while a new task travels over the network.
