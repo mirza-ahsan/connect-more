@@ -20,21 +20,11 @@ tasks under a decided position, which are then no longer needed and can be cance
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from enum import StrEnum
 
+from common.messages import Outcome
 from coordinator.board import Position
 
-
-class Outcome(StrEnum):
-    """The result of a position for the player to move, with perfect play."""
-
-    WIN = "win"
-    DRAW = "draw"
-    LOSS = "loss"
-
-    def flipped(self) -> "Outcome":
-        """The same result seen by the other player."""
-        return {Outcome.WIN: Outcome.LOSS, Outcome.LOSS: Outcome.WIN}.get(self, Outcome.DRAW)
+__all__ = ["GameTree", "Node", "Outcome"]
 
 
 @dataclass(eq=False)
@@ -80,11 +70,10 @@ class GameTree:
         if position.game_over():
             raise ValueError(f"the game is already over in the start position {start!r}")
         self.width = width
-        self.height = height
-        self.depth = depth
         self.root = Node(start, position, None)
-        self._by_task_id: dict[str, Node] = {}
-        self._expand(self.root, depth)
+        self._by_task_id: dict[str, Node] = {self.root.task_id: self.root}
+        if not self._decide_by_rules(self.root):
+            self._expand(self.root, depth)
 
     # --- Building -------------------------------------------------------------------------
 
@@ -96,14 +85,22 @@ class GameTree:
             node.outcome, node.by_rules = Outcome.DRAW, True
         return node.outcome is not None
 
-    def _expand(self, node: Node, levels: int) -> None:
-        self._by_task_id[node.task_id] = node
-        if self._decide_by_rules(node) or levels == 0:
-            return
+    def _add_children(self, node: Node) -> list[Node]:
+        """Gives `node` one child per playable column; children the rules decide are marked."""
         for col in range(self.width):
             if node.position.can_play(col):
                 child = Node(node.moves + str(col + 1), node.position.play(col), node)
                 node.children.append(child)
+                self._by_task_id[child.task_id] = child
+                self._decide_by_rules(child)
+        return node.children
+
+    def _expand(self, node: Node, levels: int) -> None:
+        """Expands an undecided node `levels` moves deep."""
+        if levels == 0:
+            return
+        for child in self._add_children(node):
+            if child.outcome is None:
                 self._expand(child, levels - 1)
         # Children are built (and decided where possible) before their parent is looked at, so
         # the parent is only ever judged on its full list of moves. For example, if every move
@@ -115,8 +112,9 @@ class GameTree:
     def node(self, task_id: str) -> Node:
         return self._by_task_id[task_id]
 
-    def nodes(self) -> Iterator[Node]:
-        stack = [self.root]
+    def nodes(self, start: Node | None = None) -> Iterator[Node]:
+        """Every node from `start` (the root by default) down, in move-string order."""
+        stack = [start or self.root]
         while stack:
             node = stack.pop()
             yield node
@@ -129,16 +127,7 @@ class GameTree:
     def open_tasks(self, node: Node) -> list[Node]:
         """Leaves below `node` (or `node` itself) that have no answer yet. Once `node` is decided,
         these are the tasks that can be cancelled."""
-        found: list[Node] = []
-        stack = [node]
-        while stack:
-            current = stack.pop()
-            if current.is_leaf():
-                if current.outcome is None:
-                    found.append(current)
-            else:
-                stack.extend(current.children)
-        return found
+        return [n for n in self.nodes(node) if n.is_leaf() and n.outcome is None]
 
     def copies(self) -> dict[int, list[Node]]:
         """Tasks that are the same position, grouped by key; only groups of two or more."""
@@ -172,9 +161,8 @@ class GameTree:
 
     @staticmethod
     def _decide_from_children(node: Node) -> bool:
-        """Decides `node` from its children if they allow it. True if it is now decided."""
-        if node.outcome is not None or not node.children:
-            return node.outcome is not None
+        """Decides an undecided node from its children if they allow it. True if it is now
+        decided."""
         outcomes = [child.outcome for child in node.children]
         if Outcome.LOSS in outcomes:
             node.outcome = Outcome.WIN
@@ -201,15 +189,7 @@ class GameTree:
         node = self.node(task_id)
         if not node.is_leaf() or not node.is_needed():
             raise ValueError(f"{task_id} cannot be split: it is not a needed, unanswered task")
-        self._expand_children(node)
+        self._add_children(node)
         decided = self._work_up(node)
         new_tasks = [child for child in node.children if child.is_needed()]
         return new_tasks, decided
-
-    def _expand_children(self, node: Node) -> None:
-        for col in range(self.width):
-            if node.position.can_play(col):
-                child = Node(node.moves + str(col + 1), node.position.play(col), node)
-                node.children.append(child)
-                self._by_task_id[child.task_id] = child
-                self._decide_by_rules(child)

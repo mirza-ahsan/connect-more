@@ -5,15 +5,14 @@ import re
 import subprocess
 from collections.abc import Callable
 from functools import cache
-from pathlib import Path
 
 import pytest
 
 from common.messages import TASK_ID
 from coordinator.board import Position
 from coordinator.tree import GameTree, Node, Outcome
+from tests.helpers import SOLVERS, needs_solver
 
-ROOT = Path(__file__).resolve().parent.parent
 W, D, L = Outcome.WIN, Outcome.DRAW, Outcome.LOSS
 
 
@@ -150,22 +149,17 @@ def test_split_decided_at_once_by_the_rules() -> None:
 # --- Whole trees against a separate solver ----------------------------------------------------
 
 
-def make_solver(width: int, height: int) -> Callable[[Position], Outcome]:
-    """An exact solver written only for these tests: plain negamax with memory, fine for 4x4."""
-
-    @cache
-    def solve(key: int, position: Position) -> Outcome:
-        if position.can_win_now():
-            return W
-        if position.is_full():
-            return D
-        replies = [solve_position(position.play(c)) for c in range(width) if position.can_play(c)]
-        return W if L in replies else D if D in replies else L
-
-    def solve_position(position: Position) -> Outcome:
-        return solve(position.key(), position)
-
-    return solve_position
+@cache
+def solve(position: Position) -> Outcome:
+    """An exact solver written only for these tests: plain negamax with memory, fine for 4x4.
+    Positions are frozen dataclasses, so equal positions share one cache entry."""
+    if position.can_win_now():
+        return W
+    if position.is_full():
+        return D
+    moves = range(position.width)
+    replies = [solve(position.play(c)) for c in moves if position.can_play(c)]
+    return W if L in replies else D if D in replies else L
 
 
 def check_tree(
@@ -192,24 +186,20 @@ def check_tree(
 @pytest.mark.parametrize("split_share", [0.0, 0.3])
 @pytest.mark.parametrize("depth", [1, 3, 5])
 def test_4x4_combines_to_tromps_result(depth: int, split_share: float) -> None:
-    solve = make_solver(4, 4)
     assert solve(Position(4, 4)) == D  # Tromp's table: 4x4 is a draw
     tree = GameTree("", depth, 4, 4)
     check_tree(tree, solve, random.Random(depth), split_share)
     assert tree.result == D
 
 
-SOLVER_6X4 = ROOT / "build/small-boards/bin/c4solve_6x4.exe"
-
-
-@pytest.mark.skipif(not SOLVER_6X4.exists(), reason="run the small-boards preset first")
+@needs_solver("6x4")
 def test_6x4_with_the_real_solver() -> None:
     """Tasks answered by the C++ solver combine to Tromp's result: 6x4 is a second-player win."""
     tree = GameTree("", 2, 6, 4)
 
     def real_solve(task: Node) -> Outcome:
         out = subprocess.run(
-            [str(SOLVER_6X4), "--single", task.moves, "--table-mb", "16"],
+            [str(SOLVERS["6x4"]), "--single", task.moves, "--table-mb", "16"],
             capture_output=True,
             text=True,
             check=True,
