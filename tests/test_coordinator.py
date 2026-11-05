@@ -28,7 +28,14 @@ from coordinator.strategies import (
     weighted_split,
 )
 from coordinator.tree import GameTree, Outcome
-from tests.helpers import ROOT, fake_hello, logged, needs_solver, read_log, start_worker
+from tests.helpers import (
+    ROOT,
+    fake_hello,
+    logged,
+    needs_solver,
+    read_log,
+    start_worker,
+)
 
 # --- Strategy ---------------------------------------------------------------------------------
 
@@ -226,6 +233,30 @@ def test_command_line(tmp_path: Path) -> None:
         "r1",
     )
     assert run_cli.main(["--start", "1212121", "--log-dir", str(tmp_path)]) == 2  # game over
+
+
+@needs_solver("7x6")
+def test_laptop_alone(tmp_path: Path) -> None:
+    """Experiment E1: one laptop alone is V3 with one worker."""
+    config = Config(
+        run_id="e1",
+        start="751321",  # Pons Begin-Hard: a win, with copies at depth 3
+        depth=3,
+        strategy="V3",
+        workers=1,
+        expect=Outcome.WIN,
+        bind="tcp://127.0.0.1:0",
+        timeout=240,
+        log_dir=tmp_path,
+    )
+    summary, codes = whole_run(config, ["7x6"])
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True and codes == [0] and list(summary.workers) == ["w1"]
+    assert summary.workers["w1"]["tasks_sent"] == summary.tasks_sent > 0
+    assert summary.answered_from_memory + summary.merged_copies > 0  # copies merged
+    check_every_task_ended(summary)
+    start = read_log(log_path("e1", "coordinator", tmp_path))[0]
+    assert start["event"] == "coordinator_start" and start["repository"]["commit"]
 
 
 # --- Misbehaving workers (fake workers driven by the test) ------------------------------------

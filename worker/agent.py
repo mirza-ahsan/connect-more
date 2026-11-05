@@ -19,6 +19,7 @@ from pathlib import Path
 import zmq
 
 from common import messages as m
+from common.build import ROOT, git_state, parse_commit
 from common.runlog import LOGS_DIR, RunLog, log_path, stamp
 from worker import solver as s
 
@@ -31,7 +32,7 @@ class Config:
     coordinator: str = "127.0.0.1"
     port: int = 5555
     name: str = socket.gethostname()
-    solver: Path = Path(__file__).resolve().parent.parent / "build/release/bin/c4solve_7x6.exe"
+    solver: Path = ROOT / "build/release/bin/c4solve_7x6.exe"
     threads: int | None = None  # None: one per logical processor (the solver decides)
     table_mb: int | None = None  # None: the solver's default (CM_DEFAULT_TT_MB)
     log_dir: Path = LOGS_DIR
@@ -45,7 +46,11 @@ class Worker:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.log = RunLog(log_path("workers", f"{stamp()}_{config.name}", config.log_dir))
-        self.log.write("worker_start", config={k: str(v) for k, v in asdict(config).items()})
+        self.log.write(
+            "worker_start",
+            config={k: str(v) for k, v in asdict(config).items()},
+            repository=git_state(),
+        )
 
         # Answers from the solver's reader threads are queued, and each one pings the main
         # loop through an inproc socket, so the loop wakes at once without polling.
@@ -114,10 +119,8 @@ class Worker:
             answer = self._next_answer(deadline - time.monotonic())
             if isinstance(answer, s.Info):
                 self.log.write("solver_info", text=answer.text)
-                if answer.text.startswith("commit "):
-                    # "# commit 76208ebc0e2a, dirty false"
-                    parts = answer.text.replace(",", "").split()
-                    commit, dirty = parts[1], parts[3] != "false"
+                if (build := parse_commit(answer.text)) is not None:
+                    commit, dirty = build
             elif isinstance(answer, s.Ready):
                 if answer.protocol != s.PROTOCOL_VERSION:
                     raise WorkerError(f"solver speaks protocol {answer.protocol}")
