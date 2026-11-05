@@ -36,7 +36,8 @@ def parse_result(output: str) -> dict[str, object] | None:
 
 
 def run(start: str, expect: Outcome | None, solver: Path, log_dir: Path, run_id: str) -> int:
-    """0: solved (and right, if the result is known); 1: wrong or no result."""
+    """0: solved (and right, if the result is known); 1: wrong, no result or failed. The run's
+    table size, threads and mode are in the solver's own lines in the raw file."""
     path = log_path(run_id, "unsplit", log_dir)
     with RunLog(path) as log:
         log.write("unsplit_start", start=start, expect=expect, build=build_info(solver))
@@ -44,16 +45,20 @@ def run(start: str, expect: Outcome | None, solver: Path, log_dir: Path, run_id:
         # The solver writes straight into the raw file ("x": never overwrite a raw log), so an
         # interrupted run still keeps what it printed.
         raw = path.with_suffix(".txt")
-        with raw.open("xb") as out:
-            command = [str(solver), "--single", start or "-"]
-            done = subprocess.run(command, stdout=out, stderr=subprocess.STDOUT)
-        result = parse_result(raw.read_text(encoding="utf-8"))
+        try:
+            with raw.open("xb") as out:
+                command = [str(solver), "--single", start or "-"]
+                code = subprocess.run(command, stdout=out, stderr=subprocess.STDOUT).returncode
+        except (OSError, KeyboardInterrupt) as e:
+            log.write("unsplit_end", error=f"{type(e).__name__}: {e}", result=None, correct=None)
+            raise
+        result = parse_result(raw.read_text(encoding="utf-8", errors="replace"))
+        if code != 0:
+            result = None  # a result line from a run that then failed is not trusted
         correct = None if expect is None or result is None else result["outcome"] == expect
-        log.write("unsplit_end", returncode=done.returncode, result=result, correct=correct)
+        log.write("unsplit_end", returncode=code, result=result, correct=correct)
     if result is None:
-        print(
-            f"unsplit_count: no result (exit code {done.returncode}); see {path}", file=sys.stderr
-        )
+        print(f"unsplit_count: no result (exit code {code}); see {raw}", file=sys.stderr)
         return 1
     print(
         f"unsplit_count: {result['outcome']}, {result['positions']} positions searched, "

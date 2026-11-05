@@ -15,18 +15,21 @@ SOLVER = WorkerConfig().solver  # the release build's 7x6 solver, as the worker 
 
 
 def solver_header(solver: Path = SOLVER) -> list[str]:
-    """The build lines a c4solve prints at start-up (commit, dirty flag, compiler, flags, board,
-    table), without their '#': it is started in service mode with a tiny table and told to quit
-    at once."""
+    """The build lines a c4solve prints at start-up (version, commit and dirty flag, compiler and
+    flags, board), without their '#'. It is started in service mode with a tiny table and told
+    to quit at once; the lines about that start (table, threads, mode) describe this probe, not
+    a run, so they are left out."""
     done = subprocess.run(
         [str(solver), "--threads", "1", "--table-mb", "1"],
         input="quit\n",
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
     )
     answers = [s.parse_answer(line) for line in done.stdout.splitlines()]
-    return [answer.text for answer in answers if isinstance(answer, s.Info)]
+    lines = [answer.text for answer in answers if isinstance(answer, s.Info)]
+    return [line for line in lines if line.split(" ", 1)[0] not in ("table", "threads", "mode")]
 
 
 def build_info(solver: Path = SOLVER) -> dict[str, object]:
