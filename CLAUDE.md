@@ -2,6 +2,10 @@
 
 Context for AI coding assistants working in this repository. Read this fully before acting.
 
+## 0. Current status (read first)
+
+Steps 1–18 of `docs/workplan.md` are done and pushed (solver, worker, coordinator with V0, V1, V2). **`docs/handoff.md` says what is done, the decisions to keep, the plan for each remaining step (V3, one-laptop mode, experiment scripts, analysis scripts) and the pitfalls met so far.** Phase 3 is due **Sun 8 Nov 2026**. After each step: run the `simplify` skill, then an independent review agent, fix their findings, rerun every check.
+
 ## 1. What this project is
 
 A university research project (Parallel & Distributed Computing, Fall 2026, domain: Multi-Core / Many-Core Architectures) by a group of 2. We build a **distributed Connect Four solver** that splits an uneven game-tree search across **two unequal Windows 11 laptops**, and study how to share the work fairly when:
@@ -59,7 +63,8 @@ Both group members commit to this repository, each from their own clone. Every r
 | `ENVIRONMENT.md` | Exact hardware, OS, toolchain and settings of both laptops (source of truth) |
 | `CMakeLists.txt` | Top-level C++ build: toolchain lock checks, shared flags (`cm::options`), generates `cm/build_info.hpp` |
 | `solver/CMakeLists.txt` | Builds one library + executables per board size (`c4core_7x6`, `c4solve_7x6.exe`, ...) and C++ tests (labels `unit`, `verify`). Finds sources by glob; empty folders are skipped |
-| `CMakePresets.json` | Build presets: `release` (experiments), `debug`, `debug-ubsan`, `relwithdebinfo`; test presets `release-unit`, `release-verify`; workflow `release` |
+| `CMakePresets.json` | Build presets: `release` (experiments), `small-boards` (4x4/6x4/6x6 checks), `debug`, `debug-ubsan`, `relwithdebinfo`; test presets `release-unit`, `release-verify`; workflows `release`, `small-boards` |
+| `cmake/build_info.cmake` | Refreshes the git commit and dirty flag in `cm/build_info.hpp` before every build |
 | `solver/include/c4/` | C++ public headers (board, solver, transposition table) |
 | `solver/src/` | C++ core library sources |
 | `solver/apps/` | One executable per `.cpp` (e.g. `c4solve.cpp`, `c4bench.cpp`) |
@@ -67,6 +72,8 @@ Both group members commit to this repository, each from their own clone. Every r
 | `solver/tests/data/<WxH>/*.txt` | Positions with known results for `--verify` tests, one folder per board size (Pascal Pons's test sets go in `7x6/`). Each file becomes a test running `c4solve_<WxH> --verify <file>` |
 | `coordinator/` | Python coordinator (runs on Laptop 1): task list, hand-out, re-split, cancel, combine results |
 | `worker/` | Python worker agent (runs on both laptops): receives tasks, drives the C++ solver, reports back |
+| `common/` | Shared Python code: JSON messages (`messages.py`) and run logs with two clocks (`runlog.py`) |
+| `docs/protocol.md`, `docs/handoff.md` | Agreed message protocol; current state and remaining work |
 | `scripts/` | Experiment runners, environment checks, logging helpers |
 | `analysis/` | Turns logs into tables and charts for the paper |
 | `tests/` | Python tests (pytest) |
