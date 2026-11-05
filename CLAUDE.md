@@ -27,12 +27,12 @@ Both group members commit to this repository, each from their own clone. Every r
 2. **Keep commits small and focused.** A commit contains one file, or a few closely related files that belong to the same change (for example `.vscode/settings.json` + `.vscode/extensions.json`, or `pyproject.toml` + `uv.lock`). Never mix unrelated changes in one commit.
 3. **Stage files by explicit path only:** `git add path/to/file`. Never use `git add -A`, `git add .`, `git add -u` or `git commit -a`.
 4. **Never add AI attribution** to commits: no `Co-Authored-By` trailer, no "Generated with Claude Code" line, no `Claude-Session` trailer, no mention of Claude or AI in commit messages. The author is the user.
-5. **Never push.** Also never: force-push, pull, fetch-and-rebase, rebase, merge, `reset --hard`, `commit --amend`, `checkout`/`switch` to another branch, create or delete branches or tags, `stash drop`, `clean -fd`, or edit `git config`.
+5. **Push only with `git push origin main`, and only when the user asks for a push in their current message.** Never force-push or delete remote branches. Also never: pull, fetch-and-rebase, rebase, merge, `reset --hard`, `commit --amend`, `checkout`/`switch` to another branch, create or delete branches or tags, `stash drop`, `clean -fd`, or edit `git config`.
 6. Before committing, show the user `git status --short` and the staged diff summary (`git diff --cached --stat`).
 7. Commit message format: `<area>: <imperative summary>` (max ~72 chars), optional blank line + short body. Areas: `solver`, `coordinator`, `worker`, `scripts`, `analysis`, `tests`, `build`, `env`, `docs`.
    Example: `solver: add transposition table with 2^24 entries`
 8. Never commit generated or bulky files: `build/`, `dist/`, `.venv/`, `logs/`, `*.exe`, HWiNFO `*.CSV`, `compile_commands.json`.
-9. The remote is `origin` = `git@github.com:mirza-ahsan/connect-more.git` (SSH). Pushing and pulling are done by the group members themselves, never by the assistant.
+9. The remote is `origin` = `git@github.com:mirza-ahsan/connect-more.git` (SSH). Pulling is done by the group members themselves, never by the assistant. `.claude/settings.json` allows exactly `git push origin main`, blocks force pushes, and asks for approval for any other push.
 10. Each group member enables the commit hook once per clone by running `git config core.hooksPath .githooks` themselves (the assistant must not edit git config).
 
 ### Environment (locked; see `ENVIRONMENT.md`)
