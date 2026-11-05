@@ -84,7 +84,7 @@ bye 3.501
 ### General rules
 - ZeroMQ over TCP port 5555. The coordinator (Laptop 1) uses a **ROUTER** socket and each worker a **DEALER** socket, so either side can send at any time. That's needed, because the coordinator must be able to send `stop` and `cancel` while a worker is busy.
 - One JSON object per message, in UTF-8.
-- Every message has `"type"` and `"v"` (the protocol version, `1`). A message with another version is answered with `error` and otherwise ignored.
+- Every message has `"type"` and `"v"` (the protocol version, `1`). A message with another version, or one that breaks these rules, is ignored. The worker also answers it with `error`; the coordinator only logs it, since it has no `error` message of its own.
 - Names use lower case and underscores. Times are in seconds.
 - Each side keeps its own clocks. Messages carry the sender's times, and `clock_check` (below) lets the coordinator line the two laptops' logs up afterwards.
 
