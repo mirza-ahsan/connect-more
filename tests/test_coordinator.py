@@ -20,7 +20,13 @@ from common.runlog import log_path
 from coordinator import run as run_cli
 from coordinator.calibration import Position, load_positions
 from coordinator.server import Config, Coordinator, CoordinatorError, Summary
-from coordinator.strategies import SharedPile, SplittingPile, make_strategy, weighted_split
+from coordinator.strategies import (
+    SharedPile,
+    SharingPile,
+    SplittingPile,
+    make_strategy,
+    weighted_split,
+)
 from coordinator.tree import GameTree, Outcome
 from tests.helpers import ROOT, fake_hello, logged, needs_solver, read_log, start_worker
 
@@ -91,33 +97,62 @@ def check_every_task_ended(summary: Summary) -> None:
         assert worker["tasks_sent"] == worker["results"] + worker["stopped"] + worker["cancelled"]
 
 
+def known(
+    board: str,
+    start: str,
+    depth: int,
+    expect: Outcome,
+    strategy: str = "V1",
+    split_after: float = 60,
+) -> object:
+    """A whole-run case: a start position with a known result."""
+    return pytest.param(
+        board,
+        start,
+        depth,
+        expect,
+        strategy,
+        split_after,
+        marks=needs_solver(board),
+        id=f"{board} {expect} {strategy}",
+    )
+
+
 @pytest.mark.parametrize(
-    ("board", "start", "depth", "expect"),
+    ("board", "start", "depth", "expect", "strategy", "split_after"),
     [
-        pytest.param("4x4", "", 3, Outcome.DRAW, marks=needs_solver("4x4"), id="4x4 draw"),
-        pytest.param("6x4", "", 3, Outcome.LOSS, marks=needs_solver("6x4"), id="6x4 loss"),
-        pytest.param("6x6", "", 2, Outcome.LOSS, marks=needs_solver("6x6"), id="6x6 loss"),
+        known("4x4", "", 3, Outcome.DRAW),
+        known("6x4", "", 3, Outcome.LOSS),
+        known("6x6", "", 2, Outcome.LOSS),
         # Pons's Middle-Medium file: a draw and a loss for the player to move.
-        pytest.param(
-            "7x6", "274552224131661", 2, Outcome.DRAW, marks=needs_solver("7x6"), id="7x6 draw"
-        ),
-        pytest.param(
-            "7x6", "5455174361263362", 3, Outcome.LOSS, marks=needs_solver("7x6"), id="7x6 loss"
-        ),
+        known("7x6", "274552224131661", 2, Outcome.DRAW),
+        known("7x6", "5455174361263362", 3, Outcome.LOSS),
+        # V3 on positions with copies. Pons Begin-Hard (a win) with a short time limit, so that
+        # tasks are split during the test too.
+        known("4x4", "", 4, Outcome.DRAW, "V3"),
+        known("7x6", "751321", 3, Outcome.WIN, "V3", split_after=0.1),
     ],
 )
 def test_whole_run_gives_the_known_result(
-    board: str, start: str, depth: int, expect: Outcome, tmp_path: Path
+    board: str,
+    start: str,
+    depth: int,
+    expect: Outcome,
+    strategy: str,
+    split_after: float,
+    tmp_path: Path,
 ) -> None:
     config = Config(
-        run_id=f"test-{board}",
+        run_id=f"test-{board}-{strategy}",
         start=start,
         depth=depth,
+        strategy=strategy,
         workers=2,
         board=board,
         expect=expect,
         bind="tcp://127.0.0.1:0",
         timeout=240,
+        split_after=split_after,
         log_dir=tmp_path,
     )
     summary, codes = whole_run(config, [board, board])
@@ -138,6 +173,9 @@ def test_whole_run_gives_the_known_result(
     assert summary.copied_tasks == sum(len(group) - 1 for group in fresh.copies().values())
     if start == "" and depth >= 3:
         assert summary.copied_tasks > 0  # from the empty board, copies appear three moves deep
+    if strategy == "V3":
+        assert summary.copied_tasks > 0
+        assert summary.answered_from_memory + summary.merged_copies > 0
     for worker in summary.workers.values():
         assert worker["positions"] >= worker["positions_lost"] + worker["positions_unneeded"]
 
@@ -653,3 +691,165 @@ def test_v2_whole_run_with_real_workers(tmp_path: Path) -> None:
     assert summary.correct is True and codes == [0, 0]
     assert summary.tasks_split > 0
     check_every_task_ended(summary)
+
+
+# --- V3: share results, keep related tasks together -------------------------------------------
+
+
+def test_v3_pile_keeps_siblings_and_split_children_with_one_worker() -> None:
+    assert SharingPile.shares_results and SharingPile.splits_long_tasks
+    assert not SplittingPile.shares_results
+    tree = GameTree("", 2)
+    pile = SharingPile()
+    pile.start(tree, [fake_hello("a"), fake_hello("b")], {})
+    # Each worker takes a whole group of siblings: a gets p11..p17, b gets p21..p27.
+    assert pile.next_task("a") is tree.node("p11")
+    assert pile.next_task("b") is tree.node("p21")
+    assert pile.next_task("a") is tree.node("p12")
+
+    # The children of a task that a held go to the front of a's own queue.
+    children, _ = tree.split("p12")
+    pile.add_split(children, "a")
+    assert [pile.next_task("a") for _ in range(7)] == children
+    assert pile.next_task("a") is tree.node("p13")
+
+    # A task that comes back goes to the front of the pile, as a group of its own.
+    pile.add_tasks([tree.node("p22")])
+    assert [pile.next_task("a") for _ in range(4)] == [tree.node(f"p1{c}") for c in "4567"]
+    assert pile.next_task("a") is tree.node("p22")
+    assert pile.next_task("a") is tree.node("p31")  # then the next group
+
+
+def test_v3_pile_takes_from_another_worker_when_nothing_is_left() -> None:
+    tree = GameTree("", 1)  # one group: p1..p7
+    pile = SharingPile()
+    pile.start(tree, [fake_hello("a"), fake_hello("b")], {})
+    assert pile.next_task("a") is tree.node("p1")  # a takes the only group
+    assert pile.next_task("b") is tree.node("p7")  # b takes from the back of a's queue
+    tree.record("p6", Outcome.WIN)
+    assert pile.next_task("b") is tree.node("p5")  # skipping the answered p6
+    assert pile.next_task("a") is tree.node("p2")
+
+
+@pytest.mark.parametrize("credit", [1, 400])
+def test_v3_never_sends_the_same_position_twice(credit: int, tmp_path: Path) -> None:
+    """Depth 3 from the empty board: 343 tasks, 238 positions. Every task is a draw, so every
+    position is needed to the end. With one task at a time, copies are answered from memory
+    before their turn comes; with every task sent at once, copies are held back until the answer
+    for their position arrives."""
+    config = fake_config(tmp_path, f"v3-copies-{credit}", Outcome.DRAW, strategy="V3", depth=3)
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+    server = worker.serve(lambda task: "draw", credit=credit)
+    thread.join(60)
+    assert worker.finished_cleanly(server)
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True
+    assert summary.tasks_at_start == 343 and summary.copied_tasks == 343 - 238
+    assert summary.tasks_sent == 238 and summary.answered_from_memory == 343 - 238
+    assert summary.merged_copies == (0 if credit == 1 else 343 - 238)
+    check_every_task_ended(summary)
+
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    tree = coordinator.tree
+    sent = [r["message"]["task_id"] for r in logged(records, "sent", "task")]
+    assert len({tree.node(task_id).position.key() for task_id in sent}) == len(sent) == 238
+    worker.close()
+
+
+def test_v3_keeps_a_task_whose_copy_still_needs_it(tmp_path: Path) -> None:
+    """p123 and p321 are the same position. p123 is sent first, so p321 is held back. Then p121
+    is a loss, which decides p12: p123 itself no longer matters, but p321 still needs the answer,
+    so p123 is not cancelled, and its answer settles p321, which is never sent."""
+    config = fake_config(tmp_path, "v3-keep", Outcome.DRAW, strategy="V3", depth=3)
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+    tasks = [t.task_id for t in worker.join(credit=238)]  # one per position: every one sent
+    assert "p123" in tasks and "p321" not in tasks
+    worker.send(m.Result("p121", "loss", 10, 0.1, 1.0))
+    for task_id in tasks:
+        if task_id not in ("p121", "p123"):
+            worker.send(m.Result(task_id, "draw", 10, 0.1, 1.0))
+    time.sleep(0.5)  # let the coordinator handle all of it: it must not cancel p123
+    worker.send(m.Result("p123", "draw", 10, 0.1, 1.0))
+    worker.wait_for(m.RunOver)
+    thread.join(30)
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True  # p12 is a win, every other move a draw: p1, and p, draws
+    assert summary.tasks_sent == 238 and summary.merged_copies == 343 - 238
+
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    cancelled = {r["message"]["task_id"] for r in logged(records, "sent", "cancel")}
+    assert "p123" not in cancelled and cancelled  # p12's other tasks were cancelled
+    assert "p321" not in {r["message"]["task_id"] for r in logged(records, "sent", "task")}
+    worker.close()
+
+
+def test_v3_sends_a_held_copy_when_its_kept_task_is_stopped(tmp_path: Path) -> None:
+    """As above, but p123 keeps running until the time limit stops it. It is not split (it no
+    longer matters itself); p321 is released and sent instead."""
+    config = fake_config(
+        tmp_path, "v3-release", Outcome.DRAW, strategy="V3", depth=3, split_after=0.5
+    )
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+
+    def answer(task: m.Task) -> str | None:
+        return {"p123": None, "p121": "loss"}.get(task.task_id, "draw")
+
+    server = worker.serve(answer, credit=400)
+    thread.join(60)
+    assert worker.finished_cleanly(server)
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True and summary.tasks_split == 0
+    check_every_task_ended(summary)
+
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    sent = [
+        (r["message"]["type"], r["message"].get("task_id")) for r in records if r["event"] == "sent"
+    ]
+    assert ("cancel", "p123") not in sent
+    stop_123 = sent.index(("stop", "p123"))
+    sends_321 = [i for i, s in enumerate(sent) if s == ("task", "p321")]
+    assert len(sends_321) == 1 and sends_321[0] > stop_123
+    assert "p321" in [r["task_id"] for r in records if r["event"] == "held"]
+    worker.close()
+
+
+def test_v3_split_children_go_to_the_laptop_that_held_the_task(tmp_path: Path) -> None:
+    config = fake_config(
+        tmp_path, "v3-related", Outcome.DRAW, strategy="V3", workers=2, split_after=0.3
+    )
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    a, b = FakeWorker(coordinator.port, "a"), FakeWorker(coordinator.port, "b")
+
+    # p4 runs until it is stopped; every other task is a draw. b is slow, so it cannot take all
+    # of p4's children before the laptop that held p4 asks again. The laptop that held p4 takes
+    # its children from the front; the other one may take some from the back, so it never idles.
+    def answer(task: m.Task) -> str | None:
+        return None if task.task_id == "p4" else "draw"
+
+    servers = [a.serve(answer, credit=2), b.serve(answer, credit=2, delay=0.2)]
+    thread.join(60)
+    assert a.finished_cleanly(servers[0]) and b.finished_cleanly(servers[1])
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True and summary.tasks_split == 1
+
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    holder = next(r["worker"] for r in records if r["event"] == "stop_for_split")
+    sent = [r for r in logged(records, "sent", "task") if len(r["message"]["task_id"]) == 3]
+    to_holder = [r["message"]["task_id"] for r in sent if r["worker"] == holder]
+    to_other = [r["message"]["task_id"] for r in sent if r["worker"] != holder]
+    children = [f"p4{c}" for c in "1234567"]
+    assert to_holder == children[: len(to_holder)] and len(to_holder) > len(to_other)
+    assert to_other == children[::-1][: len(to_other)]
+    a.close()
+    b.close()

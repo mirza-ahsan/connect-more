@@ -39,7 +39,7 @@ def parse_args(argv: list[str]) -> Config:
         "--split-after",
         type=float,
         default=d.split_after,
-        help="V2: seconds a task may run before it is stopped and split",
+        help="V2 and V3: seconds a task may run before it is stopped and split",
     )
     args = parser.parse_args(argv)
     needs_calibration = args.strategy in STRATEGIES and STRATEGIES[args.strategy].needs_calibration

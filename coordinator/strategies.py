@@ -13,41 +13,52 @@ Implemented so far:
   a task that runs longer than the time limit is stopped and split into its children one move
   deeper, which go to the front of the shared pile so either laptop can take them at once; and
   tasks already sent whose answer can no longer matter are cancelled.
+- V3: V2, plus sharing solved results and keeping related tasks together (`SharingPile`). With
+  one worker, it is also the "laptop alone" reference (experiment E1).
 
 All of them skip tasks that are no longer needed before sending them. That alone is not
-"cancelling": only V2 cancels a task that was already sent.
+"cancelling": only V2 and V3 cancel a task that was already sent.
 """
 
 from collections import deque
-from typing import ClassVar, Protocol
+from itertools import groupby
+from typing import ClassVar
 
 from common.messages import Hello
 from coordinator.tree import GameTree, Node
 
 
-class Strategy(Protocol):
-    needs_calibration: ClassVar[bool]  # the coordinator calibrates before the run starts (V0)
-    splits_long_tasks: ClassVar[bool]  # tasks past the time limit are stopped and split (V2)
-    cancels_unneeded: ClassVar[bool]  # sent tasks are cancelled once they cannot matter (V2)
+class Strategy:
+    """What every strategy provides. The flags switch on what the coordinator does for a strategy;
+    each version turns on only what it adds."""
+
+    needs_calibration: ClassVar[bool] = False  # the coordinator calibrates first (V0)
+    splits_long_tasks: ClassVar[bool] = False  # tasks past the time limit are stopped and split
+    cancels_unneeded: ClassVar[bool] = False  # sent tasks are cancelled once they cannot matter
+    shares_results: ClassVar[bool] = False  # V3: copies merged, known positions not sent again
 
     def start(self, tree: GameTree, workers: list[Hello], speeds: dict[str, float]) -> None:
         """Called once, when the run begins. Each worker's `hello` gives its name and number of
         solver threads; `speeds` (by worker name) is filled only if the strategy needs
         calibration."""
-        ...
+        raise NotImplementedError
 
     def next_task(self, worker: str) -> Node | None:
         """A task to send to this worker now, or None if there is nothing for it right now."""
-        ...
+        raise NotImplementedError
 
     def add_tasks(self, tasks: list[Node]) -> None:
-        """Tasks that came back unanswered, or new ones (for example from splitting a task)."""
-        ...
+        """Tasks that came back unanswered and are still needed."""
+        raise NotImplementedError
+
+    def add_split(self, children: list[Node], worker: str) -> None:
+        """The children of a task that `worker` held until it was stopped and split."""
+        self.add_tasks(children)
 
     def shares(self) -> dict[str, int]:
         """How many tasks each worker was dealt at the start, if the strategy deals them out
         (written to the run log); empty if it does not."""
-        ...
+        return {}
 
 
 def weighted_split[T](items: list[T], weights: dict[str, float]) -> dict[str, list[T]]:
@@ -69,9 +80,9 @@ def weighted_split[T](items: list[T], weights: dict[str, float]) -> dict[str, li
     return shares
 
 
-def _next_needed(queue: deque[Node]) -> Node | None:
+def _next_needed(queue: deque[Node], from_back: bool = False) -> Node | None:
     while queue:
-        task = queue.popleft()
+        task = queue.pop() if from_back else queue.popleft()
         # Skip tasks made unnecessary by an answer that came in. (A task that was split is
         # never in a pile, since only sent tasks are split; is_open_task also guards against it.)
         if task.is_open_task():
@@ -79,12 +90,10 @@ def _next_needed(queue: deque[Node]) -> Node | None:
     return None
 
 
-class FixedSplit:
+class FixedSplit(Strategy):
     """V0: each worker works only through the share it was dealt at the start."""
 
     needs_calibration: ClassVar[bool] = True
-    splits_long_tasks: ClassVar[bool] = False
-    cancels_unneeded: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self._queues: dict[str, deque[Node]] = {}
@@ -109,12 +118,8 @@ class FixedSplit:
             self._queues[self._owner[task.task_id]].appendleft(task)
 
 
-class SharedPile:
+class SharedPile(Strategy):
     """V1: every worker takes the next task from one shared pile, oldest first."""
-
-    needs_calibration: ClassVar[bool] = False
-    splits_long_tasks: ClassVar[bool] = False
-    cancels_unneeded: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self._pile: deque[Node] = deque()
@@ -127,9 +132,6 @@ class SharedPile:
 
     def add_tasks(self, tasks: list[Node]) -> None:
         self._pile.extend(tasks)
-
-    def shares(self) -> dict[str, int]:
-        return {}  # nothing is dealt out: workers take from the shared pile as they go
 
 
 class SplittingPile(SharedPile):
@@ -144,7 +146,58 @@ class SplittingPile(SharedPile):
         self._pile.extendleft(reversed(tasks))  # in their own order, ahead of everything else
 
 
-STRATEGIES: dict[str, type[Strategy]] = {"V0": FixedSplit, "V1": SharedPile, "V2": SplittingPile}
+class SharingPile(Strategy):
+    """V3: V2, plus results shared by the coordinator (`shares_results`: copies of a position
+    being solved wait for its answer, and known positions are answered from memory), plus related
+    tasks kept on one laptop, so that its transposition table, which already holds positions
+    near them, can be reused.
+
+    Related tasks are tasks with the same parent position. The pile is kept in groups of such
+    siblings, in the tree's order. A worker works through its own queue: a whole group taken
+    from the pile, and the children of any task it held that was split, which go to the front of
+    its own queue. When its queue is empty it takes the next group; when no group is left, it
+    takes a task from the back of the longest queue of another worker, so that no laptop sits
+    idle while work is waiting. Tasks that come back unanswered go to the front of the pile, as a
+    group of their own."""
+
+    splits_long_tasks: ClassVar[bool] = True
+    cancels_unneeded: ClassVar[bool] = True
+    shares_results: ClassVar[bool] = True
+
+    def __init__(self) -> None:
+        self._groups: deque[list[Node]] = deque()
+        self._own: dict[str, deque[Node]] = {}
+
+    def start(self, tree: GameTree, workers: list[Hello], speeds: dict[str, float]) -> None:
+        # tree.tasks() lists siblings next to each other, so grouping neighbours is enough.
+        self._groups = deque(list(group) for _, group in groupby(tree.tasks(), lambda t: t.parent))
+        self._own = {w.worker: deque() for w in workers}
+
+    def next_task(self, worker: str) -> Node | None:
+        own = self._own[worker]
+        while (task := _next_needed(own)) is None and self._groups:
+            own.extend(self._groups.popleft())
+        if task is not None:
+            return task
+        for other in sorted(self._own.values(), key=len, reverse=True):
+            if (task := _next_needed(other, from_back=True)) is not None:
+                return task
+        return None
+
+    def add_tasks(self, tasks: list[Node]) -> None:
+        if tasks:
+            self._groups.appendleft(list(tasks))
+
+    def add_split(self, children: list[Node], worker: str) -> None:
+        self._own[worker].extendleft(reversed(children))  # in their own order, first
+
+
+STRATEGIES: dict[str, type[Strategy]] = {
+    "V0": FixedSplit,
+    "V1": SharedPile,
+    "V2": SplittingPile,
+    "V3": SharingPile,
+}
 
 
 def make_strategy(name: str) -> Strategy:
