@@ -64,6 +64,15 @@ def read_log(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def logged(records: list[dict], event: str, message_type: str) -> list[dict]:
+    """The records of a run log for messages of one type that were "sent" or "received"."""
+    return [
+        r
+        for r in records
+        if r["event"] == event and r.get("message", {}).get("type") == message_type
+    ]
+
+
 def fake_hello(name: str, board: str = "7x6", threads: int = 1) -> Hello:
     """A `hello` for a worker played by a test."""
     return Hello(name, threads, board, 16, "abc", False, 0.0, 0.0)

@@ -9,9 +9,13 @@ Implemented so far:
   works only through its own share; no work moves between laptops.
 - V1, "ask for more": one shared pile in a fixed order; whichever worker has room gets the next
   task. A fast laptop asks more often, so it gets more tasks, without its speed being measured.
+- V2: V1, plus two things the coordinator does when a strategy asks for them (the flags below):
+  a task that runs longer than the time limit is stopped and split into its children one move
+  deeper, which go to the front of the shared pile so either laptop can take them at once; and
+  tasks already sent whose answer can no longer matter are cancelled.
 
-Both skip tasks that are no longer needed before sending them. That is not "cancelling" (neither
-cancels a task that was sent); it only avoids asking for answers nobody needs.
+All of them skip tasks that are no longer needed before sending them. That alone is not
+"cancelling": only V2 cancels a task that was already sent.
 """
 
 from collections import deque
@@ -22,7 +26,9 @@ from coordinator.tree import GameTree, Node
 
 
 class Strategy(Protocol):
-    needs_calibration: ClassVar[bool]  # True: the coordinator calibrates before the run starts
+    needs_calibration: ClassVar[bool]  # the coordinator calibrates before the run starts (V0)
+    splits_long_tasks: ClassVar[bool]  # tasks past the time limit are stopped and split (V2)
+    cancels_unneeded: ClassVar[bool]  # sent tasks are cancelled once they cannot matter (V2)
 
     def start(self, tree: GameTree, workers: list[Hello], speeds: dict[str, float]) -> None:
         """Called once, when the run begins. Each worker's `hello` gives its name and number of
@@ -66,7 +72,9 @@ def weighted_split[T](items: list[T], weights: dict[str, float]) -> dict[str, li
 def _next_needed(queue: deque[Node]) -> Node | None:
     while queue:
         task = queue.popleft()
-        if task.is_needed():  # skip tasks made unnecessary by an answer that came in
+        # Skip tasks made unnecessary by an answer that came in. (A task that was split is
+        # never in a pile, since only sent tasks are split; is_open_task also guards against it.)
+        if task.is_open_task():
             return task
     return None
 
@@ -75,6 +83,8 @@ class FixedSplit:
     """V0: each worker works only through the share it was dealt at the start."""
 
     needs_calibration: ClassVar[bool] = True
+    splits_long_tasks: ClassVar[bool] = False
+    cancels_unneeded: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self._queues: dict[str, deque[Node]] = {}
@@ -103,6 +113,8 @@ class SharedPile:
     """V1: every worker takes the next task from one shared pile, oldest first."""
 
     needs_calibration: ClassVar[bool] = False
+    splits_long_tasks: ClassVar[bool] = False
+    cancels_unneeded: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self._pile: deque[Node] = deque()
@@ -120,7 +132,19 @@ class SharedPile:
         return {}  # nothing is dealt out: workers take from the shared pile as they go
 
 
-STRATEGIES: dict[str, type[Strategy]] = {"V0": FixedSplit, "V1": SharedPile}
+class SplittingPile(SharedPile):
+    """V2: the V1 pile, with long tasks split and unneeded tasks cancelled by the coordinator.
+    Tasks that come back (the children of a split task) go to the front of the pile: they are the
+    work that was running too long, so it is shared out first."""
+
+    splits_long_tasks: ClassVar[bool] = True
+    cancels_unneeded: ClassVar[bool] = True
+
+    def add_tasks(self, tasks: list[Node]) -> None:
+        self._pile.extendleft(reversed(tasks))  # in their own order, ahead of everything else
+
+
+STRATEGIES: dict[str, type[Strategy]] = {"V0": FixedSplit, "V1": SharedPile, "V2": SplittingPile}
 
 
 def make_strategy(name: str) -> Strategy:
