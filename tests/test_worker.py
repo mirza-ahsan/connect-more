@@ -2,7 +2,6 @@
 (which runs a real c4solve) through a whole run, checking every rule of docs/protocol.md part B
 that the worker is responsible for."""
 
-import json
 import subprocess
 import time
 from collections.abc import Callable, Iterator
@@ -12,7 +11,7 @@ import pytest
 import zmq
 
 from common import messages as m
-from tests.helpers import needs_solver, start_worker
+from tests.helpers import needs_solver, read_log, start_worker
 
 pytestmark = needs_solver()
 
@@ -62,8 +61,7 @@ class FakeCoordinator:
         return message
 
     def close(self) -> None:
-        self.router.close()
-        self.context.term()
+        self.context.destroy(linger=0)  # does not wait for anything still queued
 
 
 def final(task_id: str, kind: type) -> Callable[[m.Message], bool]:
@@ -175,7 +173,7 @@ def test_whole_run(run: tuple[FakeCoordinator, subprocess.Popen[str], Path]) -> 
     # The log has every line with both clocks, and the key events.
     logs = list((log_dir / "workers").glob("*_testworker.jsonl"))
     assert len(logs) == 1
-    lines = [json.loads(line) for line in logs[0].read_text(encoding="utf-8").splitlines()]
+    lines = read_log(logs[0])
     events = [line["event"] for line in lines]
     for event in ("worker_start", "solver_ready", "sent", "received", "solver_bye", "worker_end"):
         assert event in events
