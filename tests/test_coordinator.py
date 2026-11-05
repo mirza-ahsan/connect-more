@@ -5,10 +5,10 @@ processes, each driving a real c4solve (work plan step 16, check 1). The start p
 known results: the empty small boards from Tromp's table, and positions from Pons's 7x6 files.
 """
 
-import json
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -16,11 +16,13 @@ import zmq
 
 from common import messages as m
 from common.messages import parse_board
+from common.runlog import log_path
 from coordinator import run as run_cli
+from coordinator.calibration import Position, load_positions
 from coordinator.server import Config, Coordinator, CoordinatorError, Summary
-from coordinator.strategies import SharedPile, make_strategy
+from coordinator.strategies import SharedPile, make_strategy, weighted_split
 from coordinator.tree import GameTree, Outcome
-from tests.helpers import needs_solver, start_worker
+from tests.helpers import ROOT, fake_hello, needs_solver, read_log, start_worker
 
 # --- Strategy ---------------------------------------------------------------------------------
 
@@ -28,7 +30,7 @@ from tests.helpers import needs_solver, start_worker
 def test_shared_pile_order_and_skipping() -> None:
     tree = GameTree("", 1)
     pile = SharedPile()
-    pile.start(tree, [])
+    pile.start(tree, [], {})
     assert pile.next_task("a") is tree.node("p1")
     assert pile.next_task("b") is tree.node("p2")
     tree.record("p3", Outcome.LOSS)  # decides the root: nothing else is needed
@@ -55,7 +57,9 @@ def in_thread(coordinator: Coordinator) -> tuple[threading.Thread, list[Summary 
         except Exception as e:
             outcome.append(e)
 
-    thread = threading.Thread(target=run)
+    # A daemon thread: a coordinator that never ends fails its test instead of keeping pytest
+    # from exiting.
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
     return thread, outcome
 
@@ -133,10 +137,9 @@ def test_whole_run_gives_the_known_result(
         assert worker["positions"] >= worker["positions_lost"] + worker["positions_unneeded"]
 
     # Logs: the coordinator's run log ends with the summary; one log per worker.
-    lines = (tmp_path / f"test-{board}" / "coordinator.jsonl").read_text().splitlines()
-    end = json.loads(lines[-1])
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    end = records[-1]
     assert end["event"] == "run_end" and end["summary"]["result"] == expect
-    records = [json.loads(line) for line in lines]
     events = {record["event"] for record in records}
     assert {"coordinator_start", "run_start", "sent", "received", "clock", "run_end"} <= events
     clocks = [record["worker"] for record in records if record["event"] == "clock"]
@@ -195,19 +198,29 @@ class FakeWorker:
         self.socket.setsockopt(zmq.ROUTING_ID, name.encode())
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.connect(f"tcp://127.0.0.1:{port}")
+        self.error: Exception | None = None  # what went wrong in serve(), if anything
+
+    def finished_cleanly(self, server: threading.Thread) -> bool:
+        """True once serve() ended because the run was over (it got run_over), without errors."""
+        server.join(10)
+        return not server.is_alive() and self.error is None
 
     def send(self, message: m.Message) -> None:
         self.socket.send(m.encode(message))
 
-    def join(self, credit: int) -> list[m.Task]:
-        """Says hello, waits for welcome, grants credit and returns the tasks that arrive."""
-        self.send(m.Hello(self.name, 1, self.board, 16, "abc", False, 0.0, 0.0))
+    def _hello(self, credit: int) -> None:
+        """Says hello, waits for welcome and grants credit."""
+        self.send(fake_hello(self.name, self.board))
         self.wait_for(m.Welcome)
         self.send(m.GiveMeWork(credit))
+
+    def join(self, credit: int) -> list[m.Task]:
+        """Joins, and returns the tasks that arrive for the credit granted."""
+        self._hello(credit)
         tasks = [self.wait_for(m.Task) for _ in range(credit)]
         return [task for task in tasks if isinstance(task, m.Task)]
 
-    def wait_for(self, kind: type, timeout: float = 10) -> m.Message:
+    def wait_for(self, kind: type | tuple[type, ...], timeout: float = 10) -> m.Message:
         """The next message of this type; clock checks on the way are answered."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -217,11 +230,32 @@ class FakeWorker:
                     self.send(m.ClockReply(message.check_id, time.time(), time.perf_counter()))
                 if isinstance(message, kind):
                     return message
-        raise TimeoutError(f"{self.name} got no {kind.__name__}")
+        raise TimeoutError(f"{self.name} got no {kind}")
+
+    def serve(
+        self, answer: Callable[[m.Task], str], credit: int = 1, delay: float = 0.0
+    ) -> threading.Thread:
+        """In a thread: joins, then answers every task with answer(task) after `delay` seconds,
+        one at a time, until the run is over. The delay sets how fast this worker seems."""
+
+        def loop() -> None:
+            try:
+                self._hello(credit)
+                while not isinstance(task := self.wait_for((m.Task, m.RunOver), 60), m.RunOver):
+                    assert isinstance(task, m.Task)
+                    time.sleep(delay)
+                    self.send(m.Result(task.task_id, answer(task), 10, delay, 1.0))
+                    self.send(m.GiveMeWork(1))
+            except Exception as e:  # kept for the test to check, instead of lost in the thread
+                self.error = e
+
+        thread = threading.Thread(target=loop, daemon=True)
+        thread.start()
+        return thread
 
     def close(self) -> None:
-        self.socket.close()
-        self.context.term()
+        # destroy() does not wait: term() would block forever if serve() still held the socket.
+        self.context.destroy(linger=0)
 
 
 def fake_config(
@@ -230,16 +264,26 @@ def fake_config(
     expect: Outcome | None = None,
     silence_limit: float = 30.0,
     bind: str = "tcp://127.0.0.1:0",
+    strategy: str = "V1",
+    workers: int = 1,
+    depth: int = 1,
+    calibration: tuple[Position, ...] = (),
+    timeout: float = 60,
+    board: str = "7x6",
 ) -> Config:
-    """One worker, the empty board one move deep: 7 tasks."""
+    """For runs with fake workers; by default one worker and the empty board one move deep
+    (7 tasks)."""
     return Config(
         run_id=run_id,
-        depth=1,
-        workers=1,
+        depth=depth,
+        strategy=strategy,
+        workers=workers,
         expect=expect,
         bind=bind,
-        timeout=60,
+        board=board,
+        timeout=timeout,
         silence_limit=silence_limit,
+        calibration=calibration,
         log_dir=tmp_path,
     )
 
@@ -278,7 +322,7 @@ def test_unexpected_answers_and_late_workers_do_not_spoil_a_run(tmp_path: Path) 
     worker.send(m.Result("p77", "win", 5, 0.1, 1.0))
     # A second worker turning up during the run: sent away, and the run goes on.
     late = FakeWorker(coordinator.port, "late")
-    late.send(m.Hello("late", 1, "7x6", 16, "abc", False, 0.0, 0.0))
+    late.send(fake_hello("late"))
     late.wait_for(m.RunOver)
     late.close()
 
@@ -321,3 +365,155 @@ def test_port_already_in_use(tmp_path: Path) -> None:
         first.router.close()
         first.context.term()
         first.log.close()
+
+
+# --- V0: calibrate, then split once by speed --------------------------------------------------
+
+# Fake calibration positions: the fake workers look the answers up, so any valid moves will do.
+FAKE_SET = (Position("1", Outcome.WIN), Position("2", Outcome.WIN), Position("3", Outcome.WIN))
+
+
+def calibrated_answer(task: m.Task) -> str:
+    """Right answers for FAKE_SET (all wins); every task of the run is a draw, so every task is
+    needed until the end and the start position comes out as a draw."""
+    return "win" if task.task_id.startswith("c") else "draw"
+
+
+def test_v0_gives_the_faster_laptop_the_bigger_share(tmp_path: Path) -> None:
+    config = fake_config(
+        tmp_path, "v0-fake", Outcome.DRAW, strategy="V0", workers=2, depth=2, calibration=FAKE_SET
+    )  # depth 2: 49 tasks
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    fast, slow = FakeWorker(coordinator.port, "fast"), FakeWorker(coordinator.port, "slow")
+    # About 3:1 in speed: calibration takes 3 x 0.01 s on one and 3 x 0.03 s on the other.
+    servers = [fast.serve(calibrated_answer, delay=0.01), slow.serve(calibrated_answer, delay=0.03)]
+    thread.join(60)
+    assert fast.finished_cleanly(servers[0]) and slow.finished_cleanly(servers[1])
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+
+    # Calibration measured the slow one as slower, and the split followed the measurement.
+    assert summary.calibration is not None
+    shares = {name: summary.calibration[name]["share"] for name in ("fast", "slow")}
+    assert shares["fast"] > 0.6 and shares["fast"] + shares["slow"] == pytest.approx(1.0)
+    sent = {name: summary.workers[name]["tasks_sent"] for name in ("fast", "slow")}
+    assert sent["fast"] + sent["slow"] == 49
+    assert abs(sent["fast"] - 49 * shares["fast"]) < 1  # dealt in proportion to speed
+
+    # Calibration tasks are not part of the run: not counted as sent tasks or as positions.
+    assert summary.tasks_sent == 49
+    for name in ("fast", "slow"):
+        assert summary.workers[name]["positions"] == 10 * sent[name]
+
+    # No work moved: each laptop was sent exactly the tasks dealt to it at the start, in order.
+    speeds = {name: summary.calibration[name]["speed"] for name in ("fast", "slow")}
+    dealt = weighted_split([t.task_id for t in GameTree("", 2).tasks()], speeds)
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    for name in ("fast", "slow"):
+        got = [
+            r["message"]["task_id"]
+            for r in records
+            if r["event"] == "sent"
+            and r["worker"] == name
+            and r["message"]["type"] == "task"
+            and r["message"]["task_id"].startswith("p")
+        ]
+        assert got == dealt[name]
+    fast.close()
+    slow.close()
+
+
+def test_wrong_calibration_answer_ends_the_run(tmp_path: Path) -> None:
+    config = fake_config(tmp_path, "v0-wrong", strategy="V0", calibration=FAKE_SET)
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+    server = worker.serve(lambda task: "loss")  # wrong: the set says win
+    thread.join(30)
+    assert isinstance(outcome[0], CoordinatorError) and "calibration" in str(outcome[0])
+    assert worker.finished_cleanly(server)  # it was told the run is over
+    worker.close()
+
+
+def test_worker_error_during_calibration_ends_the_run(tmp_path: Path) -> None:
+    coordinator = Coordinator(
+        fake_config(tmp_path, "v0-crash", strategy="V0", calibration=FAKE_SET)
+    )
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+    worker.join(credit=1)  # gets a calibration task ...
+    worker.send(m.Error(None, "solver exited unexpectedly (3)"))  # ... and its solver crashes
+    worker.wait_for(m.RunOver)
+    thread.join(10)
+    assert isinstance(outcome[0], CoordinatorError) and "solver exited" in str(outcome[0])
+    worker.close()
+
+
+def test_timeout_during_calibration(tmp_path: Path) -> None:
+    config = fake_config(tmp_path, "v0-slow", strategy="V0", calibration=FAKE_SET, timeout=1.0)
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+    worker.join(credit=2)  # takes two calibration tasks and never answers
+    worker.wait_for(m.RunOver)
+    thread.join(30)
+    summary = outcome[0]
+    assert isinstance(summary, Summary) and summary.timed_out and summary.result is None
+    # The unanswered calibration tasks are not reported as unanswered run tasks.
+    assert summary.calibration is None and summary.workers["w1"]["unanswered"] == 0
+    worker.close()
+
+
+def test_calibration_set_for_another_board_is_refused_at_once(tmp_path: Path) -> None:
+    seven_columns = (Position("7", Outcome.WIN),)  # column 7 does not exist on a 6x4 board
+    with pytest.raises(ValueError, match="does not fit a 6x4 board"):
+        Coordinator(
+            fake_config(tmp_path, "v0-board", strategy="V0", calibration=seven_columns, board="6x4")
+        )
+
+
+def test_v0_needs_a_calibration_set(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="calibration set"):
+        Coordinator(fake_config(tmp_path, "no-set", strategy="V0"))
+
+
+@needs_solver("7x6")
+def test_v0_whole_run_with_real_workers(tmp_path: Path) -> None:
+    calibration = load_positions(ROOT / "solver/tests/data/7x6/Test_L2_R2.txt", 20)
+    config = Config(
+        run_id="v0-real",
+        start="5455174361263362",  # Pons Middle-Medium: a loss for the player to move
+        depth=3,
+        strategy="V0",
+        workers=2,
+        expect=Outcome.LOSS,
+        bind="tcp://127.0.0.1:0",
+        timeout=240,
+        calibration=calibration,
+        log_dir=tmp_path,
+    )
+    summary, codes = whole_run(config, ["7x6", "7x6"])
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True and codes == [0, 0]
+    assert summary.calibration is not None and set(summary.calibration) == {"w1", "w2"}
+    assert sum(w["share"] for w in summary.calibration.values()) == pytest.approx(1.0)
+    assert all(w["seconds"] > 0 and w["positions"] > 0 for w in summary.calibration.values())
+
+    # Every calibration task was sent before the run started, and solve time starts after it.
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    start = next(i for i, r in enumerate(records) if r["event"] == "run_start")
+    calibration_sends = [
+        i
+        for i, r in enumerate(records)
+        if r["event"] == "sent"
+        and r["message"]["type"] == "task"
+        and r["message"]["task_id"].startswith("c")
+    ]
+    assert len(calibration_sends) == 2 * 20 and max(calibration_sends) < start
+    # The split covers every task; a laptop is sent at most its share (fewer once the result
+    # makes the rest unneeded), never a task from the other laptop's share.
+    shares = records[start]["shares"]
+    assert sum(shares.values()) == summary.tasks_at_start
+    for name in ("w1", "w2"):
+        assert 0 < summary.workers[name]["tasks_sent"] <= shares[name]
