@@ -1,8 +1,11 @@
 """The coordinator: runs one experiment run on Laptop 1 (docs/protocol.md, part B).
 
-A run has three phases:
+A run has these phases:
 1. **Joining:** the task tree is built, a ROUTER socket is bound on the messaging port, and each
    worker that says `hello` gets `welcome`.
+   **Calibrating** (only for strategies that need it, V0): every worker solves the same
+   calibration set at the same time, and its speed is measured (coordinator/calibration.py).
+   This time is reported separately and is not part of the solve time.
 2. **Running:** once every expected worker has joined, tasks go out, chosen by the strategy, but
    only as far as each worker's credit allows (one running and one waiting task per solver
    thread). Every answer is recorded in the tree, until the start position's result is known.
@@ -24,6 +27,7 @@ laptops' logs can be lined up afterwards.
 """
 
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -31,6 +35,9 @@ import zmq
 
 from common import messages as m
 from common.runlog import LOGS_DIR, RunLog, log_path
+from coordinator.board import Position as Board
+from coordinator.calibration import Calibration, CalibrationError
+from coordinator.calibration import Position as CalibrationPosition
 from coordinator.strategies import make_strategy
 from coordinator.tree import GameTree, Outcome
 
@@ -51,6 +58,7 @@ class Config:
     bind: str = "tcp://*:5555"  # "tcp://127.0.0.1:0" binds a free port (tests)
     timeout: float = 24 * 3600.0  # seconds before the run is given up
     silence_limit: float = 30.0  # seconds without any message before a worker counts as gone
+    calibration: tuple[CalibrationPosition, ...] = ()  # for strategies that need it (V0)
     log_dir: Path = LOGS_DIR
 
 
@@ -95,6 +103,7 @@ class Summary:
     copied_tasks: int  # of those, tasks that are the same position as an earlier task
     tasks_sent: int
     workers: dict[str, dict[str, int]]
+    calibration: dict[str, dict[str, float]] | None = None  # V0: seconds, speed, positions, share
     timed_out: bool = False
 
 
@@ -108,6 +117,23 @@ class Coordinator:
         width, height = m.parse_board(config.board)
         self.tree = GameTree(config.start, config.depth, width, height)
         self.strategy = make_strategy(config.strategy)
+        if self.strategy.needs_calibration:
+            if not config.calibration:
+                raise ValueError(f"{config.strategy} needs a calibration set")
+            # Checked now, not when both laptops have joined: a set for another board size
+            # would otherwise only show up as solver errors during calibration.
+            for position in config.calibration:
+                try:
+                    if Board.from_moves(position.moves, width, height).game_over():
+                        raise ValueError("the game is already over")
+                except ValueError as e:
+                    raise ValueError(
+                        f"calibration position {position.moves!r} does not fit a "
+                        f"{config.board} board: {e}"
+                    ) from e
+        self.calibration: Calibration | None = None  # made when calibration starts
+        self.calibration_report: dict[str, dict[str, float]] | None = None  # when it ends
+        self.give_up = 0.0  # steady-clock time the run is given up, set when it starts
         # Counted now: once answers come in, tasks stop being "needed" and would not be counted.
         self.tasks_at_start = len(self.tree.tasks())
         self.copied_tasks = sum(len(group) - 1 for group in self.tree.copies().values())
@@ -126,7 +152,7 @@ class Coordinator:
         self.port = int(self.endpoint.rsplit(":", 1)[1])
         self.log = RunLog(log_path(config.run_id, "coordinator", config.log_dir))
 
-        self.phase = "joining"  # then "running", then "draining"
+        self.phase = "joining"  # then "calibrating" (V0 only), "running", "draining"
         self.workers: dict[bytes, WorkerState] = {}
         self.in_flight: dict[str, Assignment] = {}  # task id -> who has it, since when
         self.first_task_at: float | None = None
@@ -169,35 +195,58 @@ class Coordinator:
         return check_id
 
     def _dispatch(self) -> None:
-        """Sends tasks to every worker with credit, as long as the strategy has some. Workers
-        take turns at being offered tasks first, so neither gets first pick every time."""
-        if self.phase != "running" or not self.workers:
+        """Sends tasks to every worker with credit: calibration tasks while calibrating, the
+        strategy's tasks while running. Workers take turns at being offered tasks first, so
+        neither gets first pick every time."""
+        if self.phase not in ("calibrating", "running") or not self.workers:
             return
+        next_task = (
+            self._next_calibration_task if self.phase == "calibrating" else self._next_run_task
+        )
         workers = list(self.workers.values())
         first = self.dispatch_turn % len(workers)
         self.dispatch_turn += 1
         for worker in workers[first:] + workers[:first]:
-            while worker.credit > 0 and (task := self.strategy.next_task(worker.name)):
+            while worker.credit > 0:
                 now = time.perf_counter()
-                if self.first_task_at is None:
-                    self.first_task_at = now
+                if (task := next_task(worker, now)) is None:
+                    break
+                task_id, moves = task
                 worker.credit -= 1
-                worker.tasks_sent += 1
-                self.in_flight[task.task_id] = Assignment(worker, now)
-                if not self._send_to(worker, m.Task(task.task_id, task.moves)):
+                self.in_flight[task_id] = Assignment(worker, now)
+                if not self._send_to(worker, m.Task(task_id, moves)):
                     raise CoordinatorError(f"{worker.name} cannot be reached")
+
+    def _next_calibration_task(self, worker: WorkerState, now: float) -> tuple[str, str] | None:
+        assert self.calibration is not None
+        return self.calibration.next_task(worker.name, now)
+
+    def _next_run_task(self, worker: WorkerState, now: float) -> tuple[str, str] | None:
+        """The strategy's next task for this worker; only these count for the solve time and
+        the tasks sent."""
+        if (node := self.strategy.next_task(worker.name)) is None:
+            return None
+        if self.first_task_at is None:
+            self.first_task_at = now
+        worker.tasks_sent += 1
+        return node.task_id, node.moves
 
     # --- Receiving ------------------------------------------------------------------------
 
     def _poll_once(self) -> None:
-        """Handles every message that arrives within POLL_MS, then sends what they made possible."""
+        """Handles every message that arrives within POLL_MS, then sends what they made possible.
+        Each message's arrival time is read as it is received, before any of the batch is handled
+        (handling and logging take time, and would make later messages in a batch look late)."""
         if self.router.poll(POLL_MS):
+            batch = []
             while True:
                 try:
                     routing_id, data = self.router.recv_multipart(zmq.NOBLOCK)
                 except zmq.Again:
                     break
-                self._handle(routing_id, data, time.perf_counter())
+                batch.append((routing_id, data, time.perf_counter()))
+            for routing_id, data, arrived in batch:
+                self._handle(routing_id, data, arrived)
         self._dispatch()
 
     def _handle(self, routing_id: bytes, data: bytes, arrived: float) -> None:
@@ -225,6 +274,8 @@ class Coordinator:
                 if (assignment := self.in_flight.get(message.task_id)) is not None:
                     assignment.started_at = arrived
                     assignment.thread = message.thread
+            case m.Result() | m.Stopped() | m.Cancelled() if self._is_calibration(message.task_id):
+                self._calibration_answer(worker, message, arrived)
             case m.Result():
                 if self._final(worker, message):
                     decided = self.tree.record(message.task_id, Outcome(message.outcome))
@@ -302,14 +353,43 @@ class Coordinator:
         self.log.write("refused", worker=hello.worker, reason=reason)
         self._send(routing_id, hello.worker, m.RunOver())
 
-    def _final(self, worker: WorkerState, answer: m.Result | m.Stopped | m.Cancelled) -> bool:
-        """Book-keeping for a task's final answer. False (and the answer is ignored) if this
-        worker was not holding that task."""
-        assignment = self.in_flight.get(answer.task_id)
+    def _is_calibration(self, task_id: str) -> bool:
+        return self.calibration is not None and self.calibration.owns(task_id)
+
+    def _take(self, worker: WorkerState, task_id: str) -> bool:
+        """Takes a task out of the in-flight table when its final answer arrives. False (and the
+        answer is ignored) if this worker was not holding that task."""
+        assignment = self.in_flight.get(task_id)
         if assignment is None or assignment.worker is not worker:
-            self.log.write("unexpected_answer", worker=worker.name, task_id=answer.task_id)
+            self.log.write("unexpected_answer", worker=worker.name, task_id=task_id)
             return False
-        del self.in_flight[answer.task_id]
+        del self.in_flight[task_id]
+        return True
+
+    def _calibration_answer(
+        self, worker: WorkerState, answer: m.Result | m.Stopped | m.Cancelled, arrived: float
+    ) -> None:
+        """A calibration task's final answer: kept out of the tree and the run's counts."""
+        assert self.calibration is not None
+        if not self._take(worker, answer.task_id):
+            return
+        if isinstance(answer, m.Result):
+            try:
+                self.calibration.record(
+                    answer.task_id, Outcome(answer.outcome), answer.positions, arrived
+                )
+            except CalibrationError as e:
+                raise CoordinatorError(f"{worker.name}: {e}") from e
+        elif self.phase == "calibrating":
+            raise CoordinatorError(
+                f"{worker.name} did not finish calibration task {answer.task_id}"
+            )
+
+    def _final(self, worker: WorkerState, answer: m.Result | m.Stopped | m.Cancelled) -> bool:
+        """Book-keeping for a run task's final answer. False (and the answer is ignored) if this
+        worker was not holding that task."""
+        if not self._take(worker, answer.task_id):
+            return False
         worker.positions += answer.positions
         if isinstance(answer, m.Result):
             worker.results += 1
@@ -352,7 +432,7 @@ class Coordinator:
 
     def _run(self) -> Summary:
         config = self.config
-        give_up = time.perf_counter() + config.timeout
+        self.give_up = time.perf_counter() + config.timeout
         print(
             f"coordinator: run {config.run_id}, {config.strategy}, depth {config.depth}, "
             f"{self.tasks_at_start} tasks; waiting for {config.workers} workers "
@@ -360,39 +440,75 @@ class Coordinator:
         )
 
         # Joining.
-        while len(self.workers) < config.workers:
-            if time.perf_counter() > give_up:
+        if not self._wait_until(lambda: len(self.workers) >= config.workers):
+            return self._drain(timed_out=True)
+
+        # Calibrating (V0): every worker solves the same calibration set, at the same time.
+        speeds: dict[str, float] = {}
+        if self.strategy.needs_calibration:
+            self.phase = "calibrating"
+            calibration = Calibration(config.calibration, [w.name for w in self.workers.values()])
+            self.calibration = calibration
+            self.log.write("calibration_start", positions=len(config.calibration))
+            print(f"coordinator: calibrating with {len(config.calibration)} positions")
+            self._dispatch()
+            if not self._wait_until(calibration.done):
                 return self._drain(timed_out=True)
-            self._poll_once()
+            self.calibration_report = calibration.report()
+            self.log.write("calibration_end", workers=self.calibration_report)
+            for name, numbers in self.calibration_report.items():
+                speeds[name] = numbers["speed"]
+                print(
+                    f"coordinator: {name} calibrated in {numbers['seconds']:.2f} s, "
+                    f"share {numbers['share']:.1%}"
+                )
 
         # Running.
         self.phase = "running"
-        self.strategy.start(self.tree, [w.hello for w in self.workers.values()])
-        self.log.write("run_start", workers=[w.name for w in self.workers.values()])
+        self.strategy.start(self.tree, [w.hello for w in self.workers.values()], speeds)
+        self.log.write(
+            "run_start",
+            workers=[w.name for w in self.workers.values()],
+            shares=self.strategy.shares(),
+        )
         print("coordinator: all workers joined, run started")
-        next_clock_round = time.perf_counter() + CLOCK_EVERY
         self._dispatch()
-        while self.tree.result is None:
-            now = time.perf_counter()
-            if now > give_up:
-                return self._drain(timed_out=True)
-            self._check_silence(now)
-            if now >= next_clock_round:
-                for worker in self.workers.values():
-                    self._clock_check(worker)
-                next_clock_round = now + CLOCK_EVERY
-            self._poll_once()
+        if not self._wait_until(lambda: self.tree.result is not None, clock_rounds=True):
+            return self._drain(timed_out=True)
         if self.result_at is None:
             self.result_at = time.perf_counter()  # decided by the rules alone
         print(f"coordinator: result {self.tree.result}")
         return self._drain(timed_out=False)
+
+    def _wait_until(self, done: Callable[[], bool], clock_rounds: bool = False) -> bool:
+        """Handles messages until `done()` is true. False if the run's time limit passed first.
+        Raises CoordinatorError if a worker that joined goes silent; with `clock_rounds`, also
+        sends every worker a clock check every CLOCK_EVERY seconds."""
+        next_clock_round = time.perf_counter() + CLOCK_EVERY
+        while not done():
+            now = time.perf_counter()
+            if now > self.give_up:
+                return False
+            self._check_silence(now)
+            if clock_rounds and now >= next_clock_round:
+                for worker in self.workers.values():
+                    self._clock_check(worker)
+                next_clock_round = now + CLOCK_EVERY
+            self._poll_once()
+        return True
 
     def _drain(self, timed_out: bool) -> Summary:
         """Draining: tells every worker the run is over, waits for the tasks still in flight and
         the last clock checks, and writes the summary."""
         self._end_run()
         end_by = time.perf_counter() + END_GRACE
-        while (self.in_flight or self.final_checks) and time.perf_counter() < end_by:
+
+        # Calibration tasks are not run work, so their answers are not waited for.
+        def waiting() -> bool:
+            run_tasks = any(not self._is_calibration(t) for t in self.in_flight)
+            return run_tasks or bool(self.final_checks)
+
+        while waiting() and time.perf_counter() < end_by:
             self._poll_once()
         summary = self._summary(timed_out)
         self.log.write("run_end", summary=asdict(summary))
@@ -415,8 +531,9 @@ class Coordinator:
         if result is not None and self.first_task_at is not None and self.result_at is not None:
             solve = self.result_at - self.first_task_at
         unanswered = {w.name: 0 for w in self.workers.values()}
-        for assignment in self.in_flight.values():
-            unanswered[assignment.worker.name] += 1
+        for task_id, assignment in self.in_flight.items():
+            if not self._is_calibration(task_id):  # calibration is not part of the run
+                unanswered[assignment.worker.name] += 1
         return Summary(
             run_id=config.run_id,
             strategy=config.strategy,
@@ -445,5 +562,6 @@ class Coordinator:
                 }
                 for w in self.workers.values()
             },
+            calibration=self.calibration_report,
             timed_out=timed_out,
         )
