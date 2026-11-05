@@ -176,7 +176,7 @@ Total solve time; idle time per laptop; speedup vs i7 alone and i5 alone; repeat
 
 - Paper sections: Title, Abstract, Keywords, Introduction, Related Work, Methodology, Implementation, Results, Conclusion & Future Work, References (IEEE style).
 - Plain, simple English; every figure and table must be our own. Turnitin must report under 10% similarity, so never paste text from sources.
-- Deadlines: Phase 2 (Introduction + Methodology) 11 Oct 2026; Phase 3 (full paper + Turnitin report) 25 Oct 2026.
+- Deadlines: Phase 2 (Introduction + Methodology) 11 Oct 2026; Phase 3 (full paper + Turnitin report) 8 Nov 2026 (extended from 25 Oct).
 
 ## 10. When unsure
 
