@@ -9,8 +9,12 @@ A run has these phases:
 2. **Running:** once every expected worker has joined, tasks go out, chosen by the strategy, but
    only as far as each worker's credit allows (one running and one waiting task per solver
    thread). Every answer is recorded in the tree, until the start position's result is known.
-   With V2, a task running longer than `split_after` seconds is stopped and replaced by its
-   children one move deeper, and sent tasks that an answer made unneeded are cancelled.
+   With V2 and V3, a task running longer than `split_after` seconds is stopped and replaced by
+   its children one move deeper, and sent tasks that an answer made unneeded are cancelled.
+   With V3, the tree passes every decision on to the copies of that position, and a task whose
+   position is already being worked on (sent, or split and not decided yet) is held back
+   instead of sent: it gets that answer from memory. If that work stops being needed before it
+   is decided, the copies held back go back to the strategy.
 3. **Draining:** every worker gets `run_over`, and the coordinator waits a short while for the
    answers of tasks still in flight (their positions count as lost work) and for the last clock
    checks. A summary is written to the run log and returned.
@@ -60,7 +64,7 @@ class Config:
     bind: str = "tcp://*:5555"  # "tcp://127.0.0.1:0" binds a free port (tests)
     timeout: float = 24 * 3600.0  # seconds before the run is given up
     silence_limit: float = 30.0  # seconds without any message before a worker counts as gone
-    split_after: float = 60.0  # V2: a task running longer than this is stopped and split (pilot)
+    split_after: float = 60.0  # V2, V3: a task running longer than this is split (pilot)
     calibration: tuple[CalibrationPosition, ...] = ()  # for strategies that need it (V0)
     log_dir: Path = LOGS_DIR
 
@@ -109,8 +113,13 @@ class Summary:
     tasks_sent: int
     workers: dict[str, dict[str, int]]
     calibration: dict[str, dict[str, float]] | None = None  # V0: seconds, speed, positions, share
-    tasks_split: int = 0  # V2: tasks stopped at the time limit and replaced by their children
-    cancels_sent: int = 0  # V2: sent tasks cancelled because their answer could no longer matter
+    tasks_split: int = 0  # V2, V3: tasks stopped at the time limit and replaced by their children
+    cancels_sent: int = 0  # V2, V3: sent tasks cancelled because their answer could not matter
+    # V3. Answered from memory: needed tasks never sent, answered because a copy was decided.
+    # Merged: tasks held back (and never sent) because a copy was being solved; most of them are
+    # then answered from memory, so the two counts overlap and must not be added up.
+    answered_from_memory: int = 0
+    merged_copies: int = 0
     timed_out: bool = False
 
 
@@ -122,8 +131,10 @@ class Coordinator:
     def __init__(self, config: Config) -> None:
         self.config = config
         width, height = m.parse_board(config.board)
-        self.tree = GameTree(config.start, config.depth, width, height)
         self.strategy = make_strategy(config.strategy)
+        self.tree = GameTree(
+            config.start, config.depth, width, height, self.strategy.shares_results
+        )
         if self.strategy.splits_long_tasks and not config.split_after > 0:  # also refuses NaN
             raise ValueError(
                 f"the time limit for splitting must be positive, not {config.split_after}"
@@ -174,6 +185,10 @@ class Coordinator:
         self.dispatch_turn = 0  # which worker is offered tasks first, taking turns
         self.tasks_split = 0
         self.cancels_sent = 0
+        self.held: dict[str, Node] = {}  # V3: task id -> copy waiting for its position's answer
+        self.merged: set[str] = set()  # V3: every task ever held back
+        self.sent: set[str] = set()  # every run task sent
+        self.recheck_held = False  # V3: something changed that may let held copies go
 
         self.log.write(
             "coordinator_start",
@@ -213,6 +228,8 @@ class Coordinator:
         neither gets first pick every time."""
         if self.phase not in ("calibrating", "running") or not self.workers:
             return
+        if self.recheck_held:
+            self._release_held()
         next_task = (
             self._next_calibration_task if self.phase == "calibrating" else self._next_run_task
         )
@@ -236,13 +253,57 @@ class Coordinator:
 
     def _next_run_task(self, worker: WorkerState, now: float) -> tuple[str, str] | None:
         """The strategy's next task for this worker; only these count for the solve time and
-        the tasks sent."""
-        if (node := self.strategy.next_task(worker.name)) is None:
+        the tasks sent. With V3, a task whose position is already being worked on is held back
+        instead, and the next one is tried."""
+        while (node := self.strategy.next_task(worker.name)) is not None:
+            if not (self.strategy.shares_results and self._being_worked_on(node)):
+                break
+            self.held[node.task_id] = node
+            if node.task_id not in self.merged:
+                self.merged.add(node.task_id)
+                self.log.write("held", task_id=node.task_id)
+        if node is None:
             return None
         if self.first_task_at is None:
             self.first_task_at = now
         worker.tasks_sent += 1
+        self.sent.add(node.task_id)
         return node.task_id, node.moves
+
+    def _wanted(self, node: Node) -> bool:
+        """True if this node's answer can still change something: it is needed, or (V3) a copy of
+        it is needed, which would get the answer from memory."""
+        return node.is_needed() or (
+            self.strategy.shares_results
+            and any(copy.is_needed() for copy in self.tree.same_position(node))
+        )
+
+    def _being_worked_on(self, node: Node) -> bool:
+        """V3: True if a copy of this task (the same position) is being solved: sent, not
+        answered and not cancelled (wherever it is in the tree: it is kept for as long as a copy
+        wants its answer), or split and still needed and not decided."""
+        for copy in self.tree.same_position(node):
+            if copy is node or copy.outcome is not None:
+                continue
+            assignment = self.in_flight.get(copy.task_id)
+            if assignment is not None and not assignment.cancel_sent:
+                return True
+            if not copy.is_leaf() and copy.is_needed():
+                return True
+        return False
+
+    def _release_held(self) -> None:
+        """V3: copies held back whose position is no longer being worked on (its answer came, or
+        that work stopped being needed) leave the hold; those still needed go back to the
+        strategy, to be sent themselves. Only done after an answer or a decision, since nothing
+        else changes what is being worked on."""
+        self.recheck_held = False
+        released = [n for n in self.held.values() if not self._being_worked_on(n)]
+        for node in released:
+            del self.held[node.task_id]
+        if needed := [n for n in released if n.is_open_task()]:
+            self.log.write("released", task_ids=[n.task_id for n in needed])
+            self.strategy.add_tasks(needed)
 
     # --- Receiving ------------------------------------------------------------------------
 
@@ -298,7 +359,7 @@ class Coordinator:
             case m.Stopped() | m.Cancelled():
                 if self._final(worker, message):
                     if isinstance(message, m.Stopped) and self.strategy.splits_long_tasks:
-                        self._split(message.task_id, arrived)  # only V2 stops tasks mid-run
+                        self._split(worker, message.task_id, arrived)  # only V2, V3 stop tasks
                     else:
                         self._returned(message.task_id)
             case m.ClockReply():
@@ -375,6 +436,7 @@ class Coordinator:
             self.log.write("unexpected_answer", worker=worker.name, task_id=task_id)
             return False
         del self.in_flight[task_id]
+        self.recheck_held = bool(self.held)
         return True
 
     def _calibration_answer(
@@ -419,11 +481,14 @@ class Coordinator:
             self.strategy.add_tasks([node])
 
     def _decided(self, decided: list[Node], arrived: float) -> None:
-        """Positions an answer (or a split) just decided. With V2, every task below them that was
-        sent and is not answered yet is cancelled, whether it is waiting or running: its answer
-        can no longer change anything. Tasks not sent yet are simply never sent."""
+        """Positions an answer (or a split) just decided. With V2 and V3, every task that was
+        sent, is not answered yet and whose answer can no longer change anything is cancelled,
+        whether it is waiting or running: a task below a decided position (in V3, unless a copy
+        of it elsewhere still needs its answer), or in V3 a copy answered from memory. Tasks not
+        sent yet are simply never sent."""
         if not decided:
             return
+        self.recheck_held = bool(self.held)
         self.log.write("decided", nodes={n.task_id: str(n.outcome) for n in decided})
         if self.tree.result is not None:
             if self.result_at is None:
@@ -431,13 +496,15 @@ class Coordinator:
             return  # the run is over; run_over ends every task
         if not self.strategy.cancels_unneeded:
             return
-        # `decided` runs from the answered task upwards, so the last one's subtree holds all.
-        for task in self.tree.open_tasks(decided[-1]):
-            assignment = self.in_flight.get(task.task_id)
-            if assignment is not None and not assignment.cancel_sent:
+        for task_id, assignment in self.in_flight.items():
+            if (
+                not assignment.cancel_sent
+                and not self._is_calibration(task_id)  # calibration tasks are not in the tree
+                and not self._wanted(self.tree.node(task_id))
+            ):
                 assignment.cancel_sent = True
                 self.cancels_sent += 1
-                self._send_to(assignment.worker, m.Cancel(task.task_id))
+                self._send_to(assignment.worker, m.Cancel(task_id))
 
     def _stop_long_tasks(self, now: float) -> None:
         """V2: stops every task that has been running longer than the time limit, so it can be
@@ -451,15 +518,18 @@ class Coordinator:
                 and now - assignment.started_at >= self.config.split_after
                 and not assignment.stop_sent
                 and not self._is_calibration(task_id)  # calibration tasks are not in the tree
-                and self.tree.node(task_id).is_needed()
+                and self._wanted(self.tree.node(task_id))
             ):
+                # A task kept only for a copy elsewhere (V3) is not split when it comes back:
+                # that copy is released and sent, and split in its turn if it runs long.
                 assignment.stop_sent = True
                 self.log.write("stop_for_split", worker=assignment.worker.name, task_id=task_id)
                 self._send_to(assignment.worker, m.Stop(task_id))
 
-    def _split(self, task_id: str, arrived: float) -> None:
+    def _split(self, worker: WorkerState, task_id: str, arrived: float) -> None:
         """A task stopped at the time limit came back: its children one move deeper take its
-        place, and go back to the pile. Its positions searched count as lost work."""
+        place, and go to the strategy (V3 keeps them with the worker that held the task). Its
+        positions searched count as lost work."""
         node = self.tree.node(task_id)
         if self.phase != "running" or not node.is_open_task():
             return  # no longer needed (decided meanwhile, or the run is over)
@@ -468,7 +538,7 @@ class Coordinator:
         self.log.write(
             "split", task_id=task_id, children=[c.task_id for c in children], decided=len(decided)
         )
-        self.strategy.add_tasks(children)
+        self.strategy.add_split(children, worker.name)
         self._decided(decided, arrived)
 
     def _check_silence(self, now: float) -> None:
@@ -616,6 +686,10 @@ class Coordinator:
             tasks_sent=sum(w.tasks_sent for w in self.workers.values()),
             tasks_split=self.tasks_split,
             cancels_sent=self.cancels_sent,
+            answered_from_memory=sum(
+                n.task_id not in self.sent for n in self.tree.answered_from_memory
+            ),
+            merged_copies=len(self.merged - self.sent),
             workers={
                 w.name: {
                     "threads": w.hello.threads,

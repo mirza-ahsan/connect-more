@@ -80,8 +80,7 @@ def test_one_losing_reply_decides_a_win() -> None:
     decided = tree.record("p4", L)
     assert [node.task_id for node in decided] == ["p4", "p"]
     assert tree.result == W
-    assert tree.tasks() == []  # nothing else is needed
-    assert len(tree.open_tasks(tree.root)) == 6  # ... and these can be cancelled
+    assert tree.tasks() == []  # nothing else is needed, so p1..p7 but p4 could be cancelled
     assert tree.record("p3", W) == []  # a late answer changes nothing
 
 
@@ -146,6 +145,84 @@ def test_split_decided_at_once_by_the_rules() -> None:
     assert tree.result == W
 
 
+# --- V3: sharing results between copies -------------------------------------------------------
+
+
+def test_copies_are_answered_from_memory_only_when_sharing() -> None:
+    # "123" and "321" are the same position: the first player's stones in columns 1 and 3.
+    plain = GameTree("", 3)
+    plain.record("p123", W)
+    assert plain.node("p321").outcome is None and plain.answered_from_memory == []
+
+    tree = GameTree("", 3, shares_results=True)
+    assert [n.task_id for n in tree.same_position(tree.node("p123"))] == ["p123", "p321"]
+    decided = tree.record("p123", W)
+    assert [n.task_id for n in decided] == ["p123", "p321"]
+    copy = tree.node("p321")
+    assert copy.outcome == W and len(tree.answered_from_memory) == 1
+    assert copy not in tree.tasks()
+    assert tree.record("p321", W) == []  # a late answer for the copy changes nothing
+
+
+def test_a_shared_answer_is_worked_up_from_every_copy() -> None:
+    # p321 is a loss, so p32 is a win; its copy p123 is a loss too, so p12 is also a win.
+    tree = GameTree("", 3, shares_results=True)
+    decided = tree.record("p321", L)
+    assert [n.task_id for n in decided] == ["p321", "p32", "p123", "p12"]
+    assert tree.node("p12").outcome == W and len(tree.answered_from_memory) == 1
+
+
+def test_a_split_copy_is_decided_and_split_children_come_from_memory() -> None:
+    tree = GameTree("", 3, shares_results=True)
+    children, _ = tree.split("p123")
+    tree.record("p1231", D)  # the same position as p3211
+    for child in children[1:]:
+        tree.record(child.task_id, W)
+    # p123 is decided by combining its children, so its copy p321 is decided too.
+    assert tree.node("p123").outcome == D and tree.node("p321").outcome == D
+    assert len(tree.answered_from_memory) == 1  # p321, a task never sent
+
+    tree = GameTree("", 3, shares_results=True)
+    tree.split("p123")
+    tree.record("p1231", D)
+    new_tasks, decided = tree.split("p321")
+    known = tree.node("p3211")
+    assert known.outcome == D and known not in new_tasks
+    assert decided == [known] and len(tree.answered_from_memory) == 1
+
+
+def test_an_unneeded_answer_still_answers_its_copies() -> None:
+    tree = GameTree("", 3, shares_results=True)
+    tree.record("p121", L)  # decides p12, so p123 is no longer needed ...
+    assert not tree.node("p123").is_needed()
+    decided = tree.record("p123", D)  # ... but its answer is still the answer for p321
+    assert [n.task_id for n in decided] == ["p321"]
+    assert len(tree.answered_from_memory) == 1
+
+
+def test_a_late_answer_decides_unneeded_nodes_for_their_copies() -> None:
+    tree = GameTree("", 3, shares_results=True)
+    tree.split("p123")
+    tree.record("p121", L)  # decides p12: p123, and its children, are no longer needed
+    decided = tree.record("p1231", L)  # a late answer: p123 is a win, and so its copy p321
+    assert tree.node("p123").outcome == W
+    assert [n.task_id for n in decided] == ["p321"] and tree.node("p321").outcome == W
+
+    plain = GameTree("", 3)  # without sharing, unneeded nodes are left alone, as in V2
+    plain.split("p123")
+    plain.record("p121", L)
+    assert plain.record("p1231", L) == [] and plain.node("p123").outcome is None
+
+
+def test_contradicting_copies_are_refused() -> None:
+    tree = GameTree("", 4, shares_results=True)
+    tree.split("p1231")  # p1231 waits for its children; p3211 is the same position
+    tree.record("p3211", D)
+    assert tree.node("p1231").outcome == D
+    with pytest.raises(ValueError, match="contradicts"):
+        tree.record("p3211", W)
+
+
 # --- Whole trees against a separate solver ----------------------------------------------------
 
 
@@ -165,7 +242,8 @@ def solve(position: Position) -> Outcome:
 def check_tree(
     tree: GameTree, solve: Callable[[Position], Outcome], rng: random.Random, split_share: float
 ) -> None:
-    """Answers the tasks in a random order, splitting some first, and checks every decision."""
+    """Answers the tasks in a random order, splitting some first, and checks every decision
+    (with shared results, also those passed on to copies)."""
     pending = tree.tasks()
     rng.shuffle(pending)
     while pending:
@@ -183,13 +261,18 @@ def check_tree(
             assert node.outcome == solve(node.position), node.task_id
 
 
+@pytest.mark.parametrize("shares_results", [False, True])
 @pytest.mark.parametrize("split_share", [0.0, 0.3])
 @pytest.mark.parametrize("depth", [1, 3, 5])
-def test_4x4_combines_to_tromps_result(depth: int, split_share: float) -> None:
+def test_4x4_combines_to_tromps_result(
+    depth: int, split_share: float, shares_results: bool
+) -> None:
     assert solve(Position(4, 4)) == D  # Tromp's table: 4x4 is a draw
-    tree = GameTree("", depth, 4, 4)
+    tree = GameTree("", depth, 4, 4, shares_results)
     check_tree(tree, solve, random.Random(depth), split_share)
     assert tree.result == D
+    if shares_results and depth >= 3:
+        assert tree.answered_from_memory
 
 
 @needs_solver("6x4")

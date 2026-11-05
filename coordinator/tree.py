@@ -11,11 +11,17 @@ A position is decided by the rules alone, and never becomes a task, when the pla
 win at once (a win) or the board is full (a draw).
 
 Different move orders can reach the same position. Each order is its own node and its own task
-(copies are part of what the experiments measure); `copies()` groups them for V3, which merges
-them. Mirror images are different positions.
+(copies are part of what the experiments measure); `copies()` groups them. Mirror images are
+different positions.
 
-For V2, `split()` replaces a task by its children one move deeper, and `open_tasks()` lists the
-tasks under a decided position, which are then no longer needed and can be cancelled.
+For V2, `split()` replaces a task by its children one move deeper. Tasks under a decided position
+are no longer needed (`is_needed()`), so they can be cancelled.
+
+For V3 (`shares_results`), every decision, from a task's answer or by combining answers, is passed
+on at once to every other node that is the same position (its copies, wherever they are in the
+tree), and each copy is worked up the tree in turn; a task split later gets the answers of
+children whose position is already decided elsewhere. A copy answered this way is never solved.
+Copies always have the same depth, since equal positions have the same number of stones.
 """
 
 from collections.abc import Iterator
@@ -65,8 +71,11 @@ class Node:
 
 
 class GameTree:
-    def __init__(self, start: str, depth: int, width: int = 7, height: int = 6) -> None:
-        """Expands `start` (a move string) `depth` moves deep. Raises ValueError for an invalid
+    def __init__(
+        self, start: str, depth: int, width: int = 7, height: int = 6, shares_results: bool = False
+    ) -> None:
+        """Expands `start` (a move string) `depth` moves deep. With `shares_results` (V3), every
+        decision is passed on to the copies of that position. Raises ValueError for an invalid
         start position, or one where the game is already over."""
         if depth < 0:
             raise ValueError("the split depth cannot be negative")
@@ -74,8 +83,11 @@ class GameTree:
         if position.game_over():
             raise ValueError(f"the game is already over in the start position {start!r}")
         self.width = width
+        self.shares_results = shares_results
         self.root = Node(start, position, None)
         self._by_task_id: dict[str, Node] = {self.root.task_id: self.root}
+        self._by_key: dict[int, list[Node]] = {position.key(): [self.root]}  # copies
+        self.answered_from_memory: list[Node] = []  # V3: needed tasks given a known answer
         if not self._decide_by_rules(self.root):
             self._expand(self.root, depth)
 
@@ -96,6 +108,7 @@ class GameTree:
                 child = Node(node.moves + str(col + 1), node.position.play(col), node)
                 node.children.append(child)
                 self._by_task_id[child.task_id] = child
+                self._by_key.setdefault(child.position.key(), []).append(child)
                 self._decide_by_rules(child)
         return node.children
 
@@ -128,17 +141,16 @@ class GameTree:
         """Leaves still to be solved and still needed, in a fixed order (by move string)."""
         return [n for n in self.nodes() if n.is_open_task()]
 
-    def open_tasks(self, node: Node) -> list[Node]:
-        """Leaves below `node` (or `node` itself) that have no answer yet. Once `node` is decided,
-        these are the tasks that can be cancelled."""
-        return [n for n in self.nodes(node) if n.is_leaf() and n.outcome is None]
+    def same_position(self, node: Node) -> list[Node]:
+        """Every node that is the same position as `node`, `node` included."""
+        return self._by_key[node.position.key()]
 
     def copies(self) -> dict[int, list[Node]]:
         """Tasks that are the same position, grouped by key; only groups of two or more."""
-        groups: dict[int, list[Node]] = {}
-        for task in self.tasks():
-            groups.setdefault(task.position.key(), []).append(task)
-        return {key: nodes for key, nodes in groups.items() if len(nodes) > 1}
+        groups = {
+            key: [n for n in nodes if n.is_open_task()] for key, nodes in self._by_key.items()
+        }
+        return {key: tasks for key, tasks in groups.items() if len(tasks) > 1}
 
     @property
     def result(self) -> Outcome | None:
@@ -148,8 +160,9 @@ class GameTree:
     # --- Answers coming in ----------------------------------------------------------------
 
     def record(self, task_id: str, outcome: Outcome) -> list[Node]:
-        """Stores a task's answer and works it up the tree. Returns every node decided by it,
-        from the task upwards (empty if the answer was no longer needed or already known)."""
+        """Stores a task's answer and works it up the tree. Returns every needed node decided by
+        it: the task and the nodes above it, then (V3) its copies and the nodes above them. Empty
+        if the answer was no longer needed or already known."""
         node = self.node(task_id)
         if not node.is_leaf():
             raise ValueError(f"{task_id} was split; record answers for its children instead")
@@ -157,11 +170,41 @@ class GameTree:
             if node.outcome != outcome:
                 raise ValueError(f"{task_id}: answer {outcome} contradicts {node.outcome}")
             return []
+        return self._settle(node, outcome)
+
+    def _settle(self, node: Node, outcome: Outcome, from_memory: bool = False) -> list[Node]:
+        """Gives an undecided node its outcome, works it up the tree and (V3) passes every
+        decision on to the copies. Returns the needed nodes decided."""
         needed = node.is_needed()
         node.outcome = outcome
         if not needed:
+            if not self.shares_results:
+                return []
+            # It changes nothing here, but a copy of it, or of a node above it that it decides
+            # (below the decided node that made it unneeded), may still be needed elsewhere.
+            return self._pass_on([node, *self._work_up(node.parent)])
+        if from_memory and node.is_leaf():
+            self.answered_from_memory.append(node)
+        decided = [node, *self._work_up(node.parent)]
+        return decided + self._pass_on(decided)
+
+    def _pass_on(self, decided: list[Node]) -> list[Node]:
+        """V3: decides the undecided copies of each decided node the same way. Returns the needed
+        nodes that this decides in turn."""
+        if not self.shares_results:
             return []
-        return [node, *self._work_up(node.parent)]
+        more: list[Node] = []
+        for node in decided:
+            assert node.outcome is not None
+            for copy in self.same_position(node):
+                if copy.outcome is None:
+                    more += self._settle(copy, node.outcome, from_memory=True)
+                elif copy.outcome != node.outcome:
+                    raise ValueError(
+                        f"{node.task_id} is {node.outcome}, but the same position "
+                        f"{copy.task_id} is {copy.outcome}"
+                    )
+        return more
 
     @staticmethod
     def _decide_from_children(node: Node) -> bool:
@@ -187,13 +230,20 @@ class GameTree:
 
     def split(self, task_id: str) -> tuple[list[Node], list[Node]]:
         """Replaces a needed, unanswered task by its children one move deeper (V2). Returns the
-        new tasks, and the nodes decided straight away: children decided by the rules can
-        decide the split node itself (for example when every move loses at once), and that
-        decision is worked up the tree like an answer."""
+        new tasks, and the nodes decided straight away: children decided by the rules (or, in V3,
+        known from memory) can decide the split node itself (for example when every move loses
+        at once), and that decision is worked up the tree like an answer."""
         node = self.node(task_id)
         if not node.is_open_task():
             raise ValueError(f"{task_id} cannot be split: it is not a needed, unanswered task")
         self._add_children(node)
-        decided = self._work_up(node)
+        decided: list[Node] = []
+        if self.shares_results:  # children whose position is already decided elsewhere
+            for child in node.children:
+                known = next((c.outcome for c in self.same_position(child) if c.outcome), None)
+                if child.outcome is None and known is not None:
+                    decided += self._settle(child, known, from_memory=True)
+        by_rules = self._work_up(node)  # children decided by the rules
+        decided += by_rules + self._pass_on(by_rules)
         new_tasks = [child for child in node.children if child.is_needed()]
         return new_tasks, decided
