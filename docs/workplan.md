@@ -179,16 +179,16 @@ Do the steps in order. Don't start a step until the one before it works.
 
 ---
 
-## Write and submit (Thu 22 – Sun 25 Oct)
+## Write and submit (by Sun 8 Nov; the deadline was extended from 25 Oct)
 
 37. **Write the paper** in the IEEE template:
     - Introduction and Methodology from Phase 2;
     - Related Work from Phase 1, **reworded**;
     - plus Implementation, Results and Conclusion.
 
-38. **Run Turnitin by Fri 23 Oct.** It must be under 10%. Never paste from sources or from our own earlier PDFs.
+38. **Run Turnitin by Fri 6 Nov.** It must be under 10%. Never paste from sources or from our own earlier PDFs.
 
-39. **Submit by Sun 25 Oct, 23:55.** Put a copy in `deliverables/`.
+39. **Submit by Sun 8 Nov, 23:55.** Put a copy in `deliverables/`.
 
 40. **Later:** fix what the instructor says and submit to an IEEE or ACM conference.
 
