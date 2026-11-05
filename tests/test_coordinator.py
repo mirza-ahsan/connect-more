@@ -20,9 +20,9 @@ from common.runlog import log_path
 from coordinator import run as run_cli
 from coordinator.calibration import Position, load_positions
 from coordinator.server import Config, Coordinator, CoordinatorError, Summary
-from coordinator.strategies import SharedPile, make_strategy, weighted_split
+from coordinator.strategies import SharedPile, SplittingPile, make_strategy, weighted_split
 from coordinator.tree import GameTree, Outcome
-from tests.helpers import ROOT, fake_hello, needs_solver, read_log, start_worker
+from tests.helpers import ROOT, fake_hello, logged, needs_solver, read_log, start_worker
 
 # --- Strategy ---------------------------------------------------------------------------------
 
@@ -84,6 +84,13 @@ def whole_run(config: Config, worker_boards: list[str]) -> tuple[Summary | Excep
     return outcome[0], codes
 
 
+def check_every_task_ended(summary: Summary) -> None:
+    """Every task sent was answered, stopped or cancelled; none is left unanswered."""
+    for worker in summary.workers.values():
+        assert worker["unanswered"] == 0
+        assert worker["tasks_sent"] == worker["results"] + worker["stopped"] + worker["cancelled"]
+
+
 @pytest.mark.parametrize(
     ("board", "start", "depth", "expect"),
     [
@@ -120,10 +127,8 @@ def test_whole_run_gives_the_known_result(
     assert codes == [0, 0]  # both workers exited cleanly after run_over
 
     # Both laptops took part, and every task sent was answered, stopped or cancelled.
-    for worker in summary.workers.values():
-        assert worker["tasks_sent"] > 0
-        assert worker["unanswered"] == 0
-        assert worker["tasks_sent"] == worker["results"] + worker["stopped"] + worker["cancelled"]
+    assert all(worker["tasks_sent"] > 0 for worker in summary.workers.values())
+    check_every_task_ended(summary)
     assert summary.tasks_sent == sum(w["tasks_sent"] for w in summary.workers.values())
 
     # Counts describe the tree as it was at the start (once the result is known, no task is
@@ -233,19 +238,34 @@ class FakeWorker:
         raise TimeoutError(f"{self.name} got no {kind}")
 
     def serve(
-        self, answer: Callable[[m.Task], str], credit: int = 1, delay: float = 0.0
+        self, answer: Callable[[m.Task], str | None], credit: int = 1, delay: float = 0.0
     ) -> threading.Thread:
-        """In a thread: joins, then answers every task with answer(task) after `delay` seconds,
-        one at a time, until the run is over. The delay sets how fast this worker seems."""
+        """In a thread: joins, then takes each task as it arrives, like a real worker: sends
+        `started`, waits `delay` seconds (how fast this worker seems) and answers answer(task),
+        10 positions searched. If answer(task) is None, the task keeps "running" until the
+        coordinator stops or cancels it, which is then answered with 50 positions searched.
+        Ends when the run is over."""
 
         def loop() -> None:
             try:
                 self._hello(credit)
-                while not isinstance(task := self.wait_for((m.Task, m.RunOver), 60), m.RunOver):
-                    assert isinstance(task, m.Task)
-                    time.sleep(delay)
-                    self.send(m.Result(task.task_id, answer(task), 10, delay, 1.0))
-                    self.send(m.GiveMeWork(1))
+                running: set[str] = set()
+                kinds = (m.Task, m.Stop, m.Cancel, m.RunOver)
+                while not isinstance(message := self.wait_for(kinds, 60), m.RunOver):
+                    if isinstance(message, m.Task):
+                        self.send(m.Started(message.task_id, 0, 0.0))
+                        if (outcome := answer(message)) is None:
+                            running.add(message.task_id)
+                            continue
+                        time.sleep(delay)
+                        self.send(m.Result(message.task_id, outcome, 10, delay, 1.0))
+                    elif isinstance(message, m.Stop | m.Cancel) and message.task_id in running:
+                        running.discard(message.task_id)
+                        ended = m.Stopped if isinstance(message, m.Stop) else m.Cancelled
+                        self.send(ended(message.task_id, 50, 1.0, 1.0))
+                    else:
+                        continue  # a stop or cancel for a task already answered
+                    self.send(m.GiveMeWork(1))  # one more task of credit after every answer
             except Exception as e:  # kept for the test to check, instead of lost in the thread
                 self.error = e
 
@@ -270,6 +290,7 @@ def fake_config(
     calibration: tuple[Position, ...] = (),
     timeout: float = 60,
     board: str = "7x6",
+    split_after: float = 60.0,
 ) -> Config:
     """For runs with fake workers; by default one worker and the empty board one move deep
     (7 tasks)."""
@@ -282,6 +303,7 @@ def fake_config(
         bind=bind,
         board=board,
         timeout=timeout,
+        split_after=split_after,
         silence_limit=silence_limit,
         calibration=calibration,
         log_dir=tmp_path,
@@ -413,11 +435,8 @@ def test_v0_gives_the_faster_laptop_the_bigger_share(tmp_path: Path) -> None:
     for name in ("fast", "slow"):
         got = [
             r["message"]["task_id"]
-            for r in records
-            if r["event"] == "sent"
-            and r["worker"] == name
-            and r["message"]["type"] == "task"
-            and r["message"]["task_id"].startswith("p")
+            for r in logged(records, "sent", "task")
+            if r["worker"] == name and r["message"]["task_id"].startswith("p")
         ]
         assert got == dealt[name]
     fast.close()
@@ -502,18 +521,135 @@ def test_v0_whole_run_with_real_workers(tmp_path: Path) -> None:
 
     # Every calibration task was sent before the run started, and solve time starts after it.
     records = read_log(log_path(config.run_id, "coordinator", tmp_path))
-    start = next(i for i, r in enumerate(records) if r["event"] == "run_start")
+    start = next(r for r in records if r["event"] == "run_start")
     calibration_sends = [
-        i
-        for i, r in enumerate(records)
-        if r["event"] == "sent"
-        and r["message"]["type"] == "task"
-        and r["message"]["task_id"].startswith("c")
+        r["mono"]
+        for r in logged(records, "sent", "task")
+        if r["message"]["task_id"].startswith("c")
     ]
-    assert len(calibration_sends) == 2 * 20 and max(calibration_sends) < start
+    assert len(calibration_sends) == 2 * 20 and max(calibration_sends) < start["mono"]
     # The split covers every task; a laptop is sent at most its share (fewer once the result
     # makes the rest unneeded), never a task from the other laptop's share.
-    shares = records[start]["shares"]
+    shares = start["shares"]
     assert sum(shares.values()) == summary.tasks_at_start
     for name in ("w1", "w2"):
         assert 0 < summary.workers[name]["tasks_sent"] <= shares[name]
+
+
+# --- V2: split long tasks, cancel unneeded ones -----------------------------------------------
+
+
+def test_v2_strategy_flags_and_pile_order() -> None:
+    assert not SharedPile.splits_long_tasks and not SharedPile.cancels_unneeded
+    assert SplittingPile.splits_long_tasks and SplittingPile.cancels_unneeded
+    tree = GameTree("", 1)
+    pile = SplittingPile()
+    pile.start(tree, [], {})
+    assert [pile.next_task("a"), pile.next_task("a")] == [tree.node("p1"), tree.node("p2")]
+    children, _ = tree.split("p2")  # p2 was sent, ran too long and was stopped
+    pile.add_tasks(children)  # its children go first, in their own order, then the rest
+    expected = [*children, tree.node("p3")]
+    assert [pile.next_task("a") for _ in range(len(expected))] == expected
+
+    # A task that was split is never handed out itself.
+    pile.add_tasks([tree.node("p2")])
+    assert pile.next_task("a") is tree.node("p4")
+
+
+def test_v2_splits_a_task_past_the_time_limit(tmp_path: Path) -> None:
+    config = fake_config(tmp_path, "v2-split", Outcome.DRAW, strategy="V2", split_after=0.3)
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+    # p4 keeps running until it is stopped; every other task (its children too) is a draw.
+    server = worker.serve(lambda task: None if task.task_id == "p4" else "draw", credit=7)
+    thread.join(30)
+    assert worker.finished_cleanly(server)
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+    assert summary.result == "draw" and summary.tasks_split == 1 and summary.cancels_sent == 0
+    w1 = summary.workers["w1"]
+    assert (w1["stopped"], w1["positions_lost"], w1["unanswered"]) == (1, 50, 0)
+    assert summary.tasks_sent == 7 + 7  # p1..p7, then p41..p47 in p4's place
+
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    split = next(r for r in records if r["event"] == "split")
+    assert split["task_id"] == "p4" and split["children"] == [f"p4{c}" for c in "1234567"]
+    # It was stopped only once it had run for the time limit, counted from its `started`.
+    started = next(
+        r["mono"] for r in logged(records, "received", "started") if r["message"]["task_id"] == "p4"
+    )
+    stopped = next(r["mono"] for r in records if r["event"] == "stop_for_split")
+    assert stopped - started >= 0.3
+    worker.close()
+
+
+def test_v2_cancels_tasks_an_answer_made_unneeded(tmp_path: Path) -> None:
+    config = fake_config(tmp_path, "v2-cancel", Outcome.LOSS, strategy="V2", depth=2)
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    worker = FakeWorker(coordinator.port, "w1")
+
+    # The first 7 tasks are p11..p17. p11 is a loss for the player to move, so p1 is a win and
+    # p12..p17 (still running) can no longer matter. Every later task is a loss too, so each
+    # position one move deep is a win, and the start position a loss.
+    def answer(task: m.Task) -> str | None:
+        return None if task.task_id.startswith("p1") and task.task_id != "p11" else "loss"
+
+    server = worker.serve(answer, credit=7)
+    thread.join(30)
+    assert worker.finished_cleanly(server)
+    summary = outcome[0]
+    assert isinstance(summary, Summary), summary
+    assert summary.result == "loss" and summary.correct is True
+    assert summary.tasks_split == 0
+    # The 6 tasks still running under p1 were cancelled and answered "cancelled". Tasks that
+    # were sent but answered before their cancel arrived count as results (some of them
+    # unneeded); tasks never needed were never sent.
+    w1 = summary.workers["w1"]
+    assert (w1["cancelled"], w1["positions_lost"], w1["unanswered"]) == (6, 6 * 50, 0)
+    assert summary.tasks_sent < 49
+
+    # Every cancel was for a task that had been sent and not yet answered.
+    records = read_log(log_path(config.run_id, "coordinator", tmp_path))
+    sent: set[str] = set()
+    answered: set[str] = set()
+    cancelled: list[str] = []
+    for r in records:
+        message = r.get("message", {})
+        if r["event"] == "sent" and message["type"] == "task":
+            sent.add(message["task_id"])
+        elif r["event"] == "sent" and message["type"] == "cancel":
+            assert message["task_id"] in sent and message["task_id"] not in answered
+            cancelled.append(message["task_id"])
+        elif r["event"] == "received" and message["type"] in ("result", "cancelled", "stopped"):
+            answered.add(message["task_id"])
+    assert set(cancelled) >= {f"p1{c}" for c in "234567"}
+    assert len(cancelled) == len(set(cancelled)) == summary.cancels_sent  # never twice
+    worker.close()
+
+
+def test_v2_refuses_a_time_limit_of_zero(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="time limit"):
+        Coordinator(fake_config(tmp_path, "v2-zero", strategy="V2", split_after=0))
+
+
+@needs_solver("7x6")
+def test_v2_whole_run_with_real_workers(tmp_path: Path) -> None:
+    config = Config(
+        run_id="v2-real",
+        start="751321",  # Pons Begin-Hard: a win for the player to move, about 1.5 s on 1 thread
+        depth=1,
+        strategy="V2",
+        workers=2,
+        expect=Outcome.WIN,
+        bind="tcp://127.0.0.1:0",
+        timeout=240,
+        split_after=0.1,  # short, so that tasks really are split during the test
+        log_dir=tmp_path,
+    )
+    summary, codes = whole_run(config, ["7x6", "7x6"])
+    assert isinstance(summary, Summary), summary
+    assert summary.correct is True and codes == [0, 0]
+    assert summary.tasks_split > 0
+    check_every_task_ended(summary)

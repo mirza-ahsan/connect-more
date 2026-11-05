@@ -35,6 +35,12 @@ def parse_args(argv: list[str]) -> Config:
         help="positions with known results, for strategies that calibrate (V0)",
     )
     parser.add_argument("--calibration-count", type=int, default=calibration.DEFAULT_COUNT)
+    parser.add_argument(
+        "--split-after",
+        type=float,
+        default=d.split_after,
+        help="V2: seconds a task may run before it is stopped and split",
+    )
     args = parser.parse_args(argv)
     needs_calibration = args.strategy in STRATEGIES and STRATEGIES[args.strategy].needs_calibration
     return Config(
@@ -48,6 +54,7 @@ def parse_args(argv: list[str]) -> Config:
         bind=f"tcp://*:{args.port}",
         timeout=args.timeout,
         log_dir=args.log_dir,
+        split_after=args.split_after,
         calibration=(
             calibration.load_positions(args.calibration_file, args.calibration_count)
             if needs_calibration

@@ -59,6 +59,10 @@ class Node:
         """False once this node or any node above it is decided: its answer changes nothing."""
         return self.outcome is None and all(a.outcome is None for a in self.ancestors())
 
+    def is_open_task(self) -> bool:
+        """A task still to be solved: a leaf (not split) whose answer is still needed."""
+        return self.is_leaf() and self.is_needed()
+
 
 class GameTree:
     def __init__(self, start: str, depth: int, width: int = 7, height: int = 6) -> None:
@@ -122,7 +126,7 @@ class GameTree:
 
     def tasks(self) -> list[Node]:
         """Leaves still to be solved and still needed, in a fixed order (by move string)."""
-        return [n for n in self.nodes() if n.is_leaf() and n.is_needed()]
+        return [n for n in self.nodes() if n.is_open_task()]
 
     def open_tasks(self, node: Node) -> list[Node]:
         """Leaves below `node` (or `node` itself) that have no answer yet. Once `node` is decided,
@@ -187,7 +191,7 @@ class GameTree:
         decide the split node itself (for example when every move loses at once), and that
         decision is worked up the tree like an answer."""
         node = self.node(task_id)
-        if not node.is_leaf() or not node.is_needed():
+        if not node.is_open_task():
             raise ValueError(f"{task_id} cannot be split: it is not a needed, unanswered task")
         self._add_children(node)
         decided = self._work_up(node)
