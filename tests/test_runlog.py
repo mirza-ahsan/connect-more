@@ -1,6 +1,5 @@
 """Tests for common/runlog.py: run logs with two clocks that are never overwritten."""
 
-import json
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -8,10 +7,7 @@ from pathlib import Path
 import pytest
 
 from common.runlog import RunLog, log_path
-
-
-def read_lines(path: Path) -> list[dict[str, object]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+from tests.helpers import read_log
 
 
 def test_lines_have_both_clocks_and_fields(tmp_path: Path) -> None:
@@ -20,7 +16,7 @@ def test_lines_have_both_clocks_and_fields(tmp_path: Path) -> None:
         log.write("started", task_id="t1", thread=3)
         log.write("result", task_id="t1", outcome="win", positions=12)
 
-    lines = read_lines(path)
+    lines = read_log(path)
     assert [line["event"] for line in lines] == ["started", "result"]
     assert lines[0]["task_id"] == "t1"
     assert lines[0]["thread"] == 3
@@ -30,8 +26,8 @@ def test_lines_have_both_clocks_and_fields(tmp_path: Path) -> None:
         assert isinstance(line["wall"], float)
         # The local time is the same moment as the wall clock, to the millisecond.
         local = datetime.fromisoformat(str(line["local"]))
-        assert abs(local.timestamp() - float(line["wall"])) < 0.001  # pyrefly: ignore[bad-argument-type]
-    assert float(lines[1]["mono"]) >= float(lines[0]["mono"])  # pyrefly: ignore[bad-argument-type]
+        assert abs(local.timestamp() - float(line["wall"])) < 0.001
+    assert float(lines[1]["mono"]) >= float(lines[0]["mono"])
 
 
 def test_a_log_is_never_overwritten(tmp_path: Path) -> None:
@@ -75,7 +71,7 @@ def test_many_threads_write_whole_lines(tmp_path: Path) -> None:
         for w in workers:
             w.join()
 
-    lines = read_lines(path)  # every line must be valid JSON on its own
+    lines = read_log(path)  # every line must be valid JSON on its own
     assert len(lines) == threads * per_thread
     for n in range(threads):
         assert [line["i"] for line in lines if line["thread"] == n] == list(range(per_thread))

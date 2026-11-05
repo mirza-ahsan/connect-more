@@ -1,12 +1,14 @@
 """Shared pieces for the Python tests: where the solvers are, skipping tests whose solver is not
-built, and starting worker processes."""
+built, starting worker processes, reading run logs and making fake hellos."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from common.messages import Hello
 from worker.agent import Config as WorkerConfig
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,3 +57,13 @@ def start_worker(
     return subprocess.Popen(
         args, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
+
+
+def read_log(path: Path) -> list[dict]:
+    """A run log (common/runlog.py) as a list of records, one per line."""
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def fake_hello(name: str, board: str = "7x6", threads: int = 1) -> Hello:
+    """A `hello` for a worker played by a test."""
+    return Hello(name, threads, board, 16, "abc", False, 0.0, 0.0)
