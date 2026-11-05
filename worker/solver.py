@@ -10,6 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from common.messages import OUTCOMES
+
 PROTOCOL_VERSION = 1
 
 
@@ -135,7 +137,7 @@ def parse_answer(line: str) -> Answer:
         if name == "started":
             return Started(words[1], _count(words[2]), _seconds(words[3]))
         if name == "result":
-            if words[2] not in ("win", "draw", "loss"):
+            if words[2] not in OUTCOMES:
                 raise AnswerError(f"unknown outcome in solver line: {line!r}")
             return Result(
                 words[1], words[2], _count(words[3]), _seconds(words[4]), _seconds(words[5])
