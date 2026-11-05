@@ -10,14 +10,26 @@ import dataclasses
 import json
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, ClassVar, get_type_hints
 
 PROTOCOL_VERSION = 1
 
 TASK_ID = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
 MOVES = re.compile(r"[1-9]*")  # "" is the empty board
-BOARD = re.compile(r"[1-9]x[1-9][0-9]?")
-OUTCOMES = ("win", "draw", "loss")
+BOARD = re.compile(r"([1-9])x([1-9][0-9]?)")
+
+
+class Outcome(StrEnum):
+    """The result of a position for the player to move, with perfect play. The same words are
+    used in the solver's answer lines (part A) and in `result` messages (part B)."""
+
+    WIN = "win"
+    DRAW = "draw"
+    LOSS = "loss"
+
+
+OUTCOMES = tuple(outcome.value for outcome in Outcome)
 STRATEGIES = ("V0", "V1", "V2", "V3")
 
 
@@ -193,6 +205,12 @@ COORDINATOR_TO_WORKER: tuple[type, ...] = (
 )
 BY_TYPE: dict[str, type] = {cls.TYPE: cls for cls in WORKER_TO_COORDINATOR + COORDINATOR_TO_WORKER}
 
+# Each message's fields and their types, worked out once: decode needs them for every message.
+FIELD_TYPES: dict[type, dict[str, object]] = {
+    cls: {f.name: get_type_hints(cls)[f.name] for f in dataclasses.fields(cls)}
+    for cls in BY_TYPE.values()
+}
+
 
 # --- Checking --------------------------------------------------------------------------------
 
@@ -212,10 +230,8 @@ def _matches(value: object, kind: object) -> bool:
     raise TypeError(f"field type {kind!r} is not supported")
 
 
-def _check_values(message: Message) -> None:
+def _check_values(name: str, values: dict[str, Any]) -> None:
     """Checks the rules from docs/protocol.md that go beyond the field types."""
-    name = type(message).__name__
-    values = dataclasses.asdict(message)
 
     task_id = values.get("task_id")
     if isinstance(task_id, str) and not TASK_ID.fullmatch(task_id):
@@ -242,10 +258,23 @@ def encode(message: Message) -> bytes:
     """The bytes to send for a message. Checks it first, so a bad message is never sent."""
     if type(message) not in BY_TYPE.values():
         raise MessageError(f"not a protocol message: {message!r}")
-    _check_values(message)
-    data: dict[str, Any] = {"type": message.TYPE, "v": PROTOCOL_VERSION}
-    data.update(dataclasses.asdict(message))
+    values = dataclasses.asdict(message)
+    _check_values(type(message).__name__, values)
+    data = {"type": message.TYPE, "v": PROTOCOL_VERSION, **values}
     return json.dumps(data, separators=(",", ":")).encode("utf-8")
+
+
+def as_dict(message: Message) -> dict[str, Any]:
+    """A message as a plain dict with its type first, for log lines."""
+    return {"type": message.TYPE, **dataclasses.asdict(message)}
+
+
+def parse_board(board: str) -> tuple[int, int]:
+    """Width and height from a board size such as "7x6"."""
+    match = BOARD.fullmatch(board)
+    if match is None:
+        raise ValueError(f"invalid board size {board!r}; expected WIDTHxHEIGHT, e.g. 7x6")
+    return int(match.group(1)), int(match.group(2))
 
 
 def decode(data: bytes | str, expect: tuple[type, ...] | None = None) -> Message:
@@ -268,8 +297,8 @@ def decode(data: bytes | str, expect: tuple[type, ...] | None = None) -> Message
     if expect is not None and cls not in expect:
         raise MessageError(f"message type {cls.TYPE!r} is not expected here")
 
-    hints = get_type_hints(cls)
-    fields = {f.name for f in dataclasses.fields(cls)}
+    hints = FIELD_TYPES[cls]
+    fields = set(hints)
     given = set(raw) - {"type", "v"}
     if given != fields:
         missing = sorted(fields - given)
@@ -283,6 +312,5 @@ def decode(data: bytes | str, expect: tuple[type, ...] | None = None) -> Message
             raise MessageError(f"{cls.TYPE}: field {name!r} has the wrong type ({value!r})")
         values[name] = float(value) if hints[name] is float else value
 
-    message = cls(**values)
-    _check_values(message)
-    return message
+    _check_values(cls.__name__, values)
+    return cls(**values)

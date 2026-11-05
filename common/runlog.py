@@ -25,6 +25,11 @@ RESERVED = ("mono", "wall", "local", "event")
 NAME = re.compile(r"[A-Za-z0-9_.\-]+")
 
 
+def stamp() -> str:
+    """The local date and time for naming logs and runs, e.g. "2026-11-05_14-03-27"."""
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+
 def log_path(run_id: str, name: str, root: Path = LOGS_DIR) -> Path:
     """Where a run's log goes: logs/<run_id>/<name>.jsonl."""
     for part in (run_id, name):
