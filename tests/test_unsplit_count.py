@@ -34,7 +34,8 @@ def test_unsplit_count_keeps_the_solver_output(tmp_path: Path) -> None:
     raw = (tmp_path / "u1/unsplit.txt").read_text(encoding="utf-8")
     assert raw.startswith("# c4solve") and "# threads 1" in raw and "mode single 751321" in raw
     start, end = read_log(tmp_path / "u1/unsplit.jsonl")
-    assert "board 7x6" in start["build"]["solver_header"]
+    header = start["build"]["solver_header"]
+    assert "board 7x6" in header and not any(line.startswith("table") for line in header)
     assert end["correct"] is True and end["result"]["positions"] > 0
 
     # A wrong expected result fails (Pons End-Easy: a loss for the player to move, solved fast).
