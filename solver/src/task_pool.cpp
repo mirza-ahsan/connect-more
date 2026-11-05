@@ -118,7 +118,9 @@ bool TaskPool::endTask(const std::string& task_id, Request request)
                                      [&](const Task& task) { return task.id == task_id; });
         if (it == waiting.end())
         {
-            return false;
+            // Finishing: its search has ended and its final answer is being written. There is
+            // nothing left to stop, and that answer is on its way (docs/protocol.md, promise 3).
+            return ids.count(task_id) != 0;
         }
         waiting.erase(it);
         ids.erase(task_id);
@@ -229,7 +231,8 @@ void TaskPool::workerLoop(Worker& worker, int index)
             worker.task_id.clear();
             worker.tasks++;
             worker.busy_seconds += seconds;
-            ids.erase(task.id);  // the id can be used again once its final event arrives
+            // The id stays in `ids` until the final event is out, so a stop or cancel that
+            // arrives meanwhile is answered by that event, not by "no task with this id".
         }
 
         TaskEvent ended{TaskEvent::Type::Result, task.id, index};
@@ -243,6 +246,10 @@ void TaskPool::workerLoop(Worker& worker, int index)
         ended.time = secondsSinceStart();
         on_event(ended);
 
+        {
+            const std::lock_guard<std::mutex> lock(mutex);
+            ids.erase(task.id);  // the id can be used again now that its final event is out
+        }
         // Counted until its final event is out, so waitUntilIdle() sees every event.
         finishedReporting();
     }
