@@ -40,8 +40,10 @@ class Position:
     def _bottom(self, col: int) -> int:
         return 1 << (col * (self.height + 1))
 
-    def _column(self, col: int) -> int:
-        return ((1 << self.height) - 1) << (col * (self.height + 1))
+    def _landing(self, col: int) -> int:
+        """The cell where a stone dropped in this column would land."""
+        column = ((1 << self.height) - 1) << (col * (self.height + 1))
+        return (self.mask + self._bottom(col)) & column
 
     def can_play(self, col: int) -> bool:
         top = 1 << (col * (self.height + 1) + self.height - 1)
@@ -49,9 +51,12 @@ class Position:
 
     def play(self, col: int) -> "Position":
         """The position after the player to move drops a stone in a playable column."""
-        landing = (self.mask + self._bottom(col)) & self._column(col)
         return Position(
-            self.width, self.height, self.mask | landing, self.current ^ self.mask, self.moves + 1
+            self.width,
+            self.height,
+            self.mask | self._landing(col),
+            self.current ^ self.mask,
+            self.moves + 1,
         )
 
     def _has_four(self, stones: int) -> bool:
@@ -63,8 +68,7 @@ class Position:
 
     def wins_now(self, col: int) -> bool:
         """True if the player to move gets four in a row by playing this (playable) column."""
-        landing = (self.mask + self._bottom(col)) & self._column(col)
-        return self._has_four(self.current | landing)
+        return self._has_four(self.current | self._landing(col))
 
     def can_win_now(self) -> bool:
         return any(self.can_play(c) and self.wins_now(c) for c in range(self.width))
