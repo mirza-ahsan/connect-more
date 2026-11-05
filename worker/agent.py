@@ -14,13 +14,12 @@ import socket
 import threading
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
 
 import zmq
 
 from common import messages as m
-from common.runlog import LOGS_DIR, RunLog, log_path
+from common.runlog import LOGS_DIR, RunLog, log_path, stamp
 from worker import solver as s
 
 READY_TIMEOUT = 300.0  # seconds; allocating a large table takes a moment
@@ -45,8 +44,7 @@ class WorkerError(RuntimeError):
 class Worker:
     def __init__(self, config: Config) -> None:
         self.config = config
-        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.log = RunLog(log_path("workers", f"{stamp}_{config.name}", config.log_dir))
+        self.log = RunLog(log_path("workers", f"{stamp()}_{config.name}", config.log_dir))
         self.log.write("worker_start", config={k: str(v) for k, v in asdict(config).items()})
 
         # Answers from the solver's reader threads are queued, and each one pings the main
@@ -94,7 +92,7 @@ class Worker:
     def _send(self, message: m.Message) -> None:
         assert self.dealer is not None
         self.dealer.send(m.encode(message))
-        self.log.write("sent", message={"type": message.TYPE, **asdict(message)})
+        self.log.write("sent", message=m.as_dict(message))
 
     def _grant(self, tasks: int) -> None:
         if tasks > 0 and not self.quitting:
@@ -166,7 +164,11 @@ class Worker:
             self.log.write("bad_message", error=str(e), data=data.decode("utf-8", "replace"))
             self._send(m.Error(None, f"bad message: {e}"))
             return
-        self.log.write("received", message={"type": message.TYPE, **asdict(message)})
+        if isinstance(message, m.ClockCheck):
+            # Answered before anything else, even logging, so the round trip the coordinator
+            # measures is as close to the network delay as possible.
+            self._send(m.ClockReply(message.check_id, time.time(), time.perf_counter()))
+        self.log.write("received", message=m.as_dict(message))
         assert self.solver is not None
 
         match message:
@@ -191,7 +193,7 @@ class Worker:
             case m.Cancel():
                 self.solver.cancel(message.task_id)
             case m.ClockCheck():
-                self._send(m.ClockReply(message.check_id, time.time(), time.perf_counter()))
+                pass  # answered above
             case m.RunOver():
                 if not self.quitting:
                     self.quitting = True
@@ -271,8 +273,8 @@ class Worker:
                             self.wake_pull.recv(zmq.NOBLOCK)
                         except zmq.Again:
                             break
-                while (answer := self._next_answer(0)) is not None:
-                    self._handle_answer(answer)
+                # Coordinator messages first: tasks reach the solver sooner, and clock checks
+                # are not held up behind a batch of solver answers.
                 if self.dealer in events:
                     while True:
                         try:
@@ -280,6 +282,8 @@ class Worker:
                         except zmq.Again:
                             break
                         self._handle_message(data)
+                while (answer := self._next_answer(0)) is not None:
+                    self._handle_answer(answer)
                 if not self.welcomed and time.monotonic() - waiting_since > 10:
                     print(f"worker {self.config.name}: still waiting for the coordinator ...")
                     waiting_since = time.monotonic()
