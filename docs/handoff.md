@@ -78,3 +78,17 @@ After every step: run the `simplify` skill (4 reviewers: reuse, simplification, 
 - Test helper threads must be daemon threads and fake ZeroMQ sockets closed with `context.destroy(linger=0)`, or a stuck test can keep pytest from exiting (one unexplained hang was seen once).
 - Timing tests must check behaviour, not exact counts (answers for different tasks arrive in any order).
 - The release `c4solve` prints `dirty true` until changes are committed and rebuilt; rebuild before real runs.
+
+---
+
+## 5. Session 2 progress (5 Nov 2026, evening)
+
+Done and pushed: **step 19 (V3)** at `cbb1397` (+ `5dde08f` protocol note) and **step 20 (one-laptop mode)** at `e0cc451`. Both had simplify + an independent review; the V3 review's findings were fixed (a task is kept while a copy still needs its answer; `answered_from_memory` and `merged_copies` count only tasks never sent; late answers are worked up for copies). E1 = V3 with `--workers 1`. Coordinator and worker logs now record the repository state (`common/build.py`).
+
+**Written but not committed** (in the working tree, tests passing, NOT yet through simplify/review):
+- step 21 `scripts/network_check.py` + `tests/test_network_check.py`;
+- step 22 `scripts/run_experiment.py` (roles `coordinator`, `alone`, `worker`; checks, cool-down from the live HWiNFO CSV in `logs/hwinfo/`, `--pilot`) + `scripts/experiment.toml` (pilot values to fill in); tried by hand locally (alone, and worker + coordinator roles together), no pytest file yet;
+- step 23 `scripts/collect_logs.py` (ZeroMQ log server on Laptop 2, `pull`, `backup`) + `tests/test_collect_logs.py` (needs `free_port` from the uncommitted change in `tests/helpers.py`);
+- step 33 part: `analysis/load_hwinfo.py` + `tests/test_load_hwinfo.py`.
+
+**Still to do:** the step-20 independent review result was not read before the session ended (re-run it); simplify + review + commit for steps 21–23; tests for `run_experiment.py`; step 24 `docs/session-checklist.md`; steps 33–36 (`load_runs.py`, `metrics.py`, `best_fixed_split.py`, `figures.py`, `tables.py`); `docs/decision-log.md`; then update this file and CLAUDE.md section 0.
