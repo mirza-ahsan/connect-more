@@ -4,7 +4,7 @@ Context for AI coding assistants working in this repository. Read this fully bef
 
 ## 0. Current status (read first)
 
-Steps 1–18 of `docs/workplan.md` are done and pushed (solver, worker, coordinator with V0, V1, V2). **`docs/handoff.md` says what is done, the decisions to keep, the plan for each remaining step (V3, one-laptop mode, experiment scripts, analysis scripts) and the pitfalls met so far.** Phase 3 is due **Sun 8 Nov 2026**. After each step: run the `simplify` skill, then an independent review agent, fix their findings, rerun every check.
+All code steps of `docs/workplan.md` are done and pushed (1–24 and 33–36: solver, worker, coordinator with V0–V3, experiment scripts, analysis). **`docs/handoff.md` says what is done, the decisions to keep, what is left (Laptop 2 setup, pilot, freeze, experiments, paper) and the pitfalls met so far;** `docs/decision-log.md` holds the pilot choices to fill in and the decisions made without the group; `docs/session-checklist.md` is the procedure for every experiment session. Phase 3 is due **Sun 8 Nov 2026**. After any code change: run the `simplify` skill, then an independent review agent, fix their findings, rerun every check.
 
 ## 1. What this project is
 
