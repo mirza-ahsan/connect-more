@@ -403,6 +403,31 @@ def test_a_silent_worker_ends_the_run(tmp_path: Path) -> None:
     worker.close()
 
 
+def test_only_the_expected_workers_may_join(tmp_path: Path) -> None:
+    config = Config(
+        run_id="expected",
+        depth=1,
+        workers=1,
+        bind="tcp://127.0.0.1:0",
+        timeout=30,
+        allowed_workers=("laptop2",),
+        log_dir=tmp_path,
+    )
+    coordinator = Coordinator(config)
+    thread, outcome = in_thread(coordinator)
+    stranger = FakeWorker(coordinator.port, "laptop2-pilot")
+    stranger.send(fake_hello("laptop2-pilot"))
+    stranger.wait_for(m.RunOver)  # turned away at once; the run waits on
+    stranger.close()
+    worker = FakeWorker(coordinator.port, "laptop2")
+    server = worker.serve(lambda task: "draw", credit=7)
+    thread.join(30)
+    assert worker.finished_cleanly(server)
+    summary = outcome[0]
+    assert isinstance(summary, Summary) and list(summary.workers) == ["laptop2"]
+    worker.close()
+
+
 def test_unexpected_answers_and_late_workers_do_not_spoil_a_run(tmp_path: Path) -> None:
     coordinator = Coordinator(fake_config(tmp_path, expect=Outcome.LOSS))
     thread, outcome = in_thread(coordinator)

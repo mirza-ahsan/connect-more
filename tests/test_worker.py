@@ -179,3 +179,23 @@ def test_whole_run(run: tuple[FakeCoordinator, subprocess.Popen[str], Path]) -> 
         assert event in events
     assert lines[-1]["event"] == "worker_end" and lines[-1]["clean"] is True
     assert all("mono" in line and "wall" in line for line in lines)
+
+
+def test_a_silent_coordinator_ends_the_worker(tmp_path: Path) -> None:
+    """A coordinator that welcomes the worker and then says nothing (it crashed): the worker
+    gives up after its silence limit and stops its solver, instead of waiting for ever."""
+    coordinator = FakeCoordinator()
+    extra = ("--silence-limit", "2")
+    worker = start_worker("silent", coordinator.port, tmp_path, threads=1, extra=extra)
+    try:
+        hello = coordinator.wait_for(lambda msg: isinstance(msg, m.Hello))
+        assert isinstance(hello, m.Hello)
+        coordinator.send(m.Welcome("silent", "run", "V1"))
+        assert worker.wait(30) != 0
+        (log,) = (tmp_path / "workers").glob("*_silent.jsonl")
+        end = read_log(log)[-1]
+        assert end["event"] == "worker_end" and "sent nothing" in end["reason"]
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+        coordinator.close()

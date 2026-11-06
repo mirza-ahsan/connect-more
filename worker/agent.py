@@ -36,6 +36,10 @@ class Config:
     threads: int | None = None  # None: one per logical processor (the solver decides)
     table_mb: int | None = None  # None: the solver's default (CM_DEFAULT_TT_MB)
     log_dir: Path = LOGS_DIR
+    # Seconds without any message from the coordinator, once welcomed, before the worker gives
+    # up: the coordinator sends a clock check every 10 s in every phase, so this means it has gone
+    # (its laptop crashed or its console was closed), and the solver must not work for nobody.
+    silence_limit: float = 90.0
 
 
 class WorkerError(RuntimeError):
@@ -266,7 +270,7 @@ class Worker:
             poller = zmq.Poller()
             poller.register(self.dealer, zmq.POLLIN)
             poller.register(self.wake_pull, zmq.POLLIN)
-            waiting_since = time.monotonic()
+            waiting_since = last_heard = time.monotonic()
 
             while not self.solver_done:
                 events = dict(poller.poll(1000))
@@ -279,6 +283,7 @@ class Worker:
                 # Coordinator messages first: tasks reach the solver sooner, and clock checks
                 # are not held up behind a batch of solver answers.
                 if self.dealer in events:
+                    last_heard = time.monotonic()
                     while True:
                         try:
                             data = self.dealer.recv(zmq.NOBLOCK)
@@ -290,6 +295,9 @@ class Worker:
                 if not self.welcomed and time.monotonic() - waiting_since > 10:
                     print(f"worker {self.config.name}: still waiting for the coordinator ...")
                     waiting_since = time.monotonic()
+                silent = time.monotonic() - last_heard
+                if self.welcomed and not self.quitting and silent > self.config.silence_limit:
+                    raise WorkerError(f"the coordinator sent nothing for {silent:.0f} s")
 
             clean = self.quitting and self.exit_code == 0
             self.log.write("worker_end", clean=clean)

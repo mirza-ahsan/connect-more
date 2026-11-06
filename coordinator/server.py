@@ -67,6 +67,9 @@ class Config:
     silence_limit: float = 30.0  # seconds without any message before a worker counts as gone
     split_after: float = 60.0  # V2, V3: a task running longer than this is split (pilot)
     calibration: tuple[CalibrationPosition, ...] = ()  # for strategies that need it (V0)
+    # The names of the workers that may join (empty: any name). Any other worker is turned away
+    # when it says hello, so a wrong laptop (or one in pilot mode) never takes part in a run.
+    allowed_workers: tuple[str, ...] = ()
     log_dir: Path = LOGS_DIR
 
 
@@ -390,6 +393,9 @@ class Coordinator:
             # A stray or restarted worker must not end a run that is going well.
             self._refuse(routing_id, hello, f"{hello.worker} joined after the run started")
             return
+        if self.config.allowed_workers and hello.worker not in self.config.allowed_workers:
+            self._refuse(routing_id, hello, f"{hello.worker} is not one of the expected workers")
+            return
         if routing_id in self.workers or hello.worker in names:
             self._refuse(routing_id, hello, f"a second worker called {hello.worker!r} joined")
             raise CoordinatorError(f"two workers are called {hello.worker!r}")
@@ -618,9 +624,10 @@ class Coordinator:
 
     def _wait_until(self, done: Callable[[], bool], running: bool = False) -> bool:
         """Handles messages until `done()` is true. False if the run's time limit passed first.
-        Raises CoordinatorError if a worker that joined goes silent. With `running` (the run
-        phase), also stops tasks past the time limit (V2) and sends every worker a clock check
-        every CLOCK_EVERY seconds."""
+        Raises CoordinatorError if a worker that joined goes silent. Sends every worker that
+        joined a clock check every CLOCK_EVERY seconds, in every phase, so a worker waiting for
+        the others also knows the coordinator is still there. With `running` (the run phase),
+        also stops tasks past the time limit (V2, V3)."""
         next_clock_round = time.perf_counter() + CLOCK_EVERY
         while not done():
             now = time.perf_counter()
@@ -629,7 +636,7 @@ class Coordinator:
             self._check_silence(now)
             if running:
                 self._stop_long_tasks(now)
-            if running and now >= next_clock_round:
+            if now >= next_clock_round:
                 for worker in self.workers.values():
                     self._clock_check(worker)
                 next_clock_round = now + CLOCK_EVERY
