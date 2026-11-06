@@ -100,7 +100,7 @@ Some folders may not exist yet; create them only when a task needs them.
 | RAM | 32 GB DDR5-4800 | 16 GB DDR4-2400 |
 | OS | Windows 11 Pro 26H2 (build 26300.x) | Windows 11 Pro 25H2 (build 26200.x) |
 | Power | Best performance, Dell "Ultra Performance"; PL1 dynamic 40 W, PL2 115 W | Best performance (no maker performance profile); PL1 18 W, PL2 44 W |
-| Repo path | `C:\University\connect-more` | `D:\University\connect-more` (tools in `D:\Tools`) |
+| Repo path | `C:\University\connect-more` | `D:\Projects\connect-more` (tools in `D:\Tools`) |
 | Cable IP | 192.168.2.1/24 | 192.168.2.2/24 |
 
 Toolchain (identical on both): **WinLibs GCC 16.1.0** (UCRT, POSIX threads, r4), **CMake 4.4.3** (Kitware, first on PATH), **Ninja 1.13.2**, GDB 17.2, **LLVM 22.1.8** (clangd + clang-format, editor tooling only), **uv 0.12.8**, **Python 3.12.13** (uv-managed). Messaging port: **TCP 5555** (firewall: Private profile only). HWiNFO64 logs sensors every 1000 ms.
