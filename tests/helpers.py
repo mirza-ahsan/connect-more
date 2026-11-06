@@ -2,6 +2,7 @@
 built, starting worker processes, reading run logs and making fake hellos."""
 
 import json
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ def start_worker(
     board: str = "7x6",
     threads: int = 2,
     table_mb: int = 16,
+    extra: tuple[str, ...] = (),
 ) -> subprocess.Popen[str]:
     """A worker process (python -m worker) connecting to a coordinator on this laptop."""
     args = [
@@ -53,6 +55,7 @@ def start_worker(
         str(table_mb),
         "--log-dir",
         str(log_dir),
+        *extra,
     ]
     return subprocess.Popen(
         args, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
@@ -76,3 +79,10 @@ def logged(records: list[dict], event: str, message_type: str) -> list[dict]:
 def fake_hello(name: str, board: str = "7x6", threads: int = 1) -> Hello:
     """A `hello` for a worker played by a test."""
     return Hello(name, threads, board, 16, "abc", False, 0.0, 0.0)
+
+
+def free_port() -> int:
+    """A TCP port that is free on this laptop right now."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]

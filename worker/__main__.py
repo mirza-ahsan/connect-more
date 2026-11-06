@@ -17,6 +17,12 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument("--threads", type=int, help="solver threads (default: all)")
     parser.add_argument("--table-mb", type=int, help="table size (default: the solver's)")
     parser.add_argument("--log-dir", type=Path, default=defaults.log_dir)
+    parser.add_argument(
+        "--silence-limit",
+        type=float,
+        default=defaults.silence_limit,
+        help="seconds without a message from the coordinator before giving up",
+    )
     args = parser.parse_args(argv)
     return Config(
         coordinator=args.coordinator,
@@ -26,6 +32,7 @@ def parse_args(argv: list[str]) -> Config:
         threads=args.threads,
         table_mb=args.table_mb,
         log_dir=args.log_dir,
+        silence_limit=args.silence_limit,
     )
 
 
