@@ -1,0 +1,27 @@
+# Settings for the measured runs (scripts/run_experiment.py). The values marked "pilot" are chosen
+# in the pilot study (work plan step 26) and written in docs/decision-log.md, then committed: the
+# code freeze (step 27) freezes this file too, and a run refuses to start with uncommitted changes.
+
+[run]
+start = ""             # pilot: start position, as a move string ("" = empty board)
+expect = ""            # pilot: its known result for the player to move: "win", "draw" or "loss"
+depth = 3              # pilot: split depth for E1 and E2 (E3 uses the other one, 3 or 4)
+split_after = 60.0     # pilot: V2/V3 time limit, seconds a task may run before it is split
+calibration_file = "solver/tests/data/7x6/Test_L1_R2.txt"  # pilot: V0 calibration set
+calibration_count = 200                                    # pilot: positions used from it
+timeout = 7200.0       # seconds before a run is given up
+
+[cooldown]
+# Before each run, a laptop rests for at least rest_seconds, then until its CPU package
+# temperature (from its live HWiNFO log) is at most max_package_c. Pilot: both values.
+rest_seconds = 120.0
+max_package_c = { laptop1 = 55.0, laptop2 = 55.0 }
+poll_seconds = 5.0
+hwinfo_max_age = 10.0  # seconds; an older last row means HWiNFO is not logging
+
+[network]
+# The fixed cable addresses (ENVIRONMENT.md). Wi-Fi addresses are given out by the router, so they
+# are given on the command line on the day (--coordinator, --peer), never written here: a change
+# to this file would make every measured run refuse to start.
+laptop1 = { cable = "192.168.2.1" }
+laptop2 = { cable = "192.168.2.2" }
