@@ -126,7 +126,7 @@ Laptop 1's system Python also has copies of ruff 0.16.5 and pyrefly 1.2.0. The p
 | Power mode (Settings) | Best performance | Best performance |
 | Manufacturer performance profile | Dell Thermal Management: Ultra Performance (`UltraPerformance`, set in BIOS / Dell Command \| Configure) | None (no maker performance tool; Windows power mode "Best performance" is the setting) |
 | Sleep on AC | Disabled | Disabled |
-| Defender exclusion | `C:\University\connect-more` | `D:\University\connect-more` |
+| Defender exclusion | `C:\University\connect-more` | `D:\University\connect-more` (old repo path: re-add it for `D:\Projects\connect-more`) |
 | sshd service | Automatic, running | Automatic, running |
 | HWiNFO logging interval | 1000 ms (verified: rows ~1.0 s apart) | Same (copy `HWiNFO64.INI`) |
 
@@ -225,3 +225,4 @@ git --version
 | 2026-10-04 | Laptop 1 | Corrected Coreinfo version to 4.02 (file version of the installed copy); recorded PowerShell 7.6.6.0 and VS Code 1.140.0 |
 | 2026-10-05 | Laptop 2 | Initial setup completed (admin script run clean; user script run clean). Hardware and toolchain recorded. Power-mode, manufacturer performance profile, and cable network steps still pending manual completion. |
 | 2026-10-11 | Laptop 2 | Confirmed power mode "Best performance"; no manufacturer performance profile is available. Repo is at `D:\University\connect-more`, tools in `D:\Tools` |
+| 2026-11-06 | Laptop 2 | Repo is now at `D:\Projects\connect-more` (tools still in `D:\Tools`); the Defender exclusion still names the old path |

@@ -1,6 +1,6 @@
 # Session checklist
 
-Follow this for every experiment session (work plan steps 24 and 28–32). Pilot runs use the same steps with `--pilot`. Commands run from the repository folder (`C:\University\connect-more` on Laptop 1, `D:\University\connect-more` on Laptop 2) in a normal terminal.
+Follow this for every experiment session (work plan steps 24 and 28–32). Pilot runs use the same steps with `--pilot`. Commands run from the repository folder (`C:\University\connect-more` on Laptop 1, `D:\Projects\connect-more` on Laptop 2) in a normal terminal.
 
 ---
 
