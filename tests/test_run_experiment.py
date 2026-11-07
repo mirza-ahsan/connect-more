@@ -1,6 +1,7 @@
 """Tests for scripts/run_experiment.py: the checks before a run, the cool-down, and whole runs on
 this machine (pilot mode, since the tests run from a working tree with changes)."""
 
+import re
 import threading
 import time
 from pathlib import Path
@@ -24,8 +25,11 @@ HEADER_OK = [
 def settings(tmp_path: Path) -> Path:
     """The real settings file with test values: start 751321 (Pons Begin-Hard, a win), no rest."""
     text = rx.SETTINGS.read_text(encoding="utf-8")
-    text = text.replace('start = ""', 'start = "751321"').replace('expect = ""', 'expect = "win"')
-    text = text.replace("rest_seconds = 120.0", "rest_seconds = 0.0")
+    # Whatever the frozen values are (the pilot set them), so the tests stay short.
+    for name, value in (("start", '"751321"'), ("expect", '"win"'), ("rest_seconds", "0.0")):
+        line = rf'^{name} = ("[^"]*"|\S+)'  # a quoted value may hold spaces
+        text, found = re.subn(line, f"{name} = {value}", text, count=1, flags=re.MULTILINE)
+        assert found == 1, f"scripts/experiment.toml has no line '{name} = ...'"
     path = tmp_path / "experiment.toml"
     path.write_bytes(text.encode())
     return path
