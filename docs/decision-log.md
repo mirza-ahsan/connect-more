@@ -55,3 +55,5 @@ Agreed with the group on 7 Nov 2026.
 6. **The cool-down setting `hwinfo_max_age` is now `sensor_max_age`** (same 10 s).
 7. **The network check uses Linux `ping`** (`-c`, numeric, `LC_ALL=C`), which reports fractions of a millisecond; the Windows rule "<1ms = 0.5 ms" is gone.
 8. **The `alone` role takes `--machine`** (`laptop1` or `pc`) instead of `--laptop`.
+9. **Both machines use the `performance` governor and energy preference** (7 Nov 2026). The same frequency policy on both, and the closest Linux match to Windows' "Best performance". Cost: higher idle temperature and power on Laptop 1, which only lengthens its cool-down.
+10. **The PC's memory runs in a single channel at 4800 MT/s** (1 × 16 GB; rated 6000 MT/s with EXPO, which is off). It is left as found, because changing BIOS memory settings the day before the experiments is a risk. The paper reports it, because the large transposition table depends on memory speed.
