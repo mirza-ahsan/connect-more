@@ -12,16 +12,17 @@ calibration_count = 200                                    # pilot: positions us
 timeout = 7200.0       # seconds before a run is given up
 
 [cooldown]
-# Before each run, a laptop rests for at least rest_seconds, then until its CPU package
-# temperature (from its live HWiNFO log) is at most max_package_c. Pilot: both values.
+# Before each run, a machine rests for at least rest_seconds, then until its CPU package
+# temperature (from its live sensor log, scripts/sensor_log.py) is at most max_package_c.
+# Pilot: both values. Laptop 1 reads coretemp "Package id 0", the PC k10temp "Tctl".
 rest_seconds = 120.0
-max_package_c = { laptop1 = 55.0, laptop2 = 55.0 }
+max_package_c = { laptop1 = 55.0, pc = 55.0 }
 poll_seconds = 5.0
-hwinfo_max_age = 10.0  # seconds; an older last row means HWiNFO is not logging
+sensor_max_age = 10.0  # seconds; an older last sample means the sensor log is not running
 
 [network]
 # The fixed cable addresses (ENVIRONMENT.md). Wi-Fi addresses are given out by the router, so they
 # are given on the command line on the day (--coordinator, --peer), never written here: a change
 # to this file would make every measured run refuse to start.
 laptop1 = { cable = "192.168.2.1" }
-laptop2 = { cable = "192.168.2.2" }
+pc = { cable = "192.168.2.2" }

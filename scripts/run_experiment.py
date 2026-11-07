@@ -1,35 +1,36 @@
 """Runs the measured experiment runs (work plan steps 22 and 28-31; docs/session-checklist.md).
 
-Laptop 2, once per session (it then loops until Ctrl+C: checks and cools down, joins the next run
+The PC, once per session (it then loops until Ctrl+C: checks and cools down, joins the next run
 with its worker, and so on; all along it offers its logs, the network echo and `iperf3 -s` to
 Laptop 1, see scripts/collect_logs.py):
     uv run python -m scripts.run_experiment worker --link cable
     (over Wi-Fi: --link wifi --coordinator <Laptop 1's Wi-Fi address>)
 
-Laptop 1, once per run of E2 or E3 (both laptops; it starts its own worker too, and copies Laptop
-2's logs into logs/laptop2/ afterwards):
+Laptop 1, once per run of E2 or E3 (both machines; it starts its own worker too, and copies the
+PC's logs into logs/pc/ afterwards):
     uv run python -m scripts.run_experiment coordinator --strategy V1 --link cable --repeat 1
-    (E3: add --depth with the other split depth; over Wi-Fi add --peer <Laptop 2's Wi-Fi address>)
+    (E3: add --depth with the other split depth; over Wi-Fi add --peer <the PC's Wi-Fi address>)
 
-Either laptop, for E1 (that laptop alone: V3, one worker, its own logs folder):
-    uv run python -m scripts.run_experiment alone --laptop laptop1 --repeat 1
+Either machine, for E1 (that machine alone: V3, one worker, its own logs folder):
+    uv run python -m scripts.run_experiment alone --machine laptop1 --repeat 1
 
-Before a run, each laptop checks on itself:
+Before a run, each machine checks on itself:
 1. the solver is the release build with no uncommitted changes, from the commit the repository
    is at, and the repository has no uncommitted changes (scripts/experiment.toml included);
-2. the charger is plugged in;
-3. HWiNFO is logging (its newest CSV in logs/hwinfo/ has a row from the last few seconds);
+2. the charger is plugged in (a machine without a battery, like the PC, passes);
+3. its sensor log is being written (scripts/sensor_log.py: the newest log in logs/sensors/ has a
+   sample from the last few seconds);
 4. cool-down: it rests for the set time, then waits until a fresh reading of its CPU package
-   temperature is at most the level for that laptop (both values from the pilot).
+   temperature is at most the level for that machine (both values from the pilot).
 After the run, Laptop 1 also checks that exactly the expected workers took part and that the
 coordinator gave no warning about their solvers (other commit, uncommitted changes, other table
 size); otherwise the run is marked invalid.
 
-With --pilot, failed checks are only warnings, the run id starts with "pilot", and Laptop 2's
-worker joins as "laptop2-pilot", which a measured run on Laptop 1 does not accept: pilot runs are
+With --pilot, failed checks are only warnings, the run id starts with "pilot", and the PC's
+worker joins as "pc-pilot", which a measured run on Laptop 1 does not accept: pilot runs are
 never results. Each run's own log, logs/<run_id>/experiment.jsonl, records the settings, the
-checks, the temperatures, the outcome and whether the run is valid; Laptop 2's checks and
-cool-down readings are in its session log, logs/laptop2/sessions/.
+checks, the temperatures, the outcome and whether the run is valid; the PC's checks and
+cool-down readings are in its session log, logs/pc/sessions/.
 """
 
 import argparse
@@ -42,9 +43,10 @@ from pathlib import Path
 
 import psutil
 
-from analysis.load_hwinfo import PACKAGE_TEMP, latest_value
+from analysis.load_sensors import latest_sample, newest_log
 from common import messages as m
 from common.build import ROOT, parse_commit
+from common.machines import COORDINATOR, MACHINES, PEER, SENSORS_DIR
 from common.runlog import LOGS_DIR, RunLog, log_path, stamp
 from coordinator import calibration
 from coordinator.server import Config, Coordinator, CoordinatorError, Summary
@@ -52,10 +54,9 @@ from coordinator.strategies import STRATEGIES
 from scripts import collect_logs
 from scripts.helpers import PORT, SETTINGS, SOLVER, build_info, iperf_server, load_settings
 
-WORKER_EXIT_WAIT = 120.0  # seconds for this laptop's worker to exit after a run that ended well
+WORKER_EXIT_WAIT = 120.0  # seconds for this machine's worker to exit after a run that ended well
 WORKER_KILL_WAIT = 15.0  # ... after a run that failed (it may never have joined)
-RETRY_SECONDS = 30.0  # Laptop 2's loop: wait before checking again after a failed check
-LAPTOPS = ("laptop1", "laptop2")
+RETRY_SECONDS = 30.0  # The PC's loop: wait before checking again after a failed check
 DEPTH_RUNS = ("V1", "V3")  # E3: the strategies run again at the other split depth
 
 
@@ -72,7 +73,7 @@ class Checks:
 
     build: dict = field(default_factory=dict)  # scripts/helpers.build_info()
     on_charger: bool | None = None
-    hwinfo: str | None = None
+    sensors: str | None = None  # the sensor log read
     problems: list[str] = field(default_factory=list)
 
 
@@ -103,35 +104,32 @@ def check_charger(checks: Checks) -> None:
         checks.problems.append("the charger is not plugged in")
 
 
-def newest_hwinfo(logs: Path) -> Path | None:
-    files = sorted((logs / "hwinfo").glob("*.[cC][sS][vV]"), key=lambda p: p.stat().st_mtime)
-    return files[-1] if files else None
-
-
 def package_reading(logs: Path, max_age: float) -> tuple[float | None, str]:
-    """The CPU package temperature from the newest HWiNFO log, if it has a row from the last
+    """The CPU package temperature from the newest sensor log, if it has a sample from the last
     `max_age` seconds, and the log's name; otherwise None and what is wrong."""
-    path = newest_hwinfo(logs)
+    path = newest_log(logs / SENSORS_DIR)
     if path is None:
-        return None, f"no HWiNFO log in {logs / 'hwinfo'} (start HWiNFO logging there)"
+        return None, f"no sensor log in {logs / SENSORS_DIR} (start scripts.sensor_log)"
     try:
-        package, age = latest_value(path, PACKAGE_TEMP)
-    except (OSError, ValueError, KeyError) as e:
+        sample = latest_sample(path)
+    except (OSError, ValueError) as e:
         return None, f"cannot read {path.name}: {e}"
-    if age > max_age:
-        return None, f"{path.name} has no row from the last {max_age:.0f} s (is HWiNFO logging?)"
-    return package, path.name
+    if time.time() - sample["wall"] > max_age:
+        return None, f"{path.name} has no sample from the last {max_age:.0f} s (is it running?)"
+    if sample.get("package_c") is None:
+        return None, f"{path.name} has no CPU package temperature"
+    return float(sample["package_c"]), path.name
 
 
 def run_checks(settings: dict, logs: Path, solver: Path, pilot: bool) -> Checks:
     checks = Checks()
     check_build(checks, solver)
     check_charger(checks)
-    package, about = package_reading(logs, settings["cooldown"]["hwinfo_max_age"])
+    package, about = package_reading(logs, settings["cooldown"]["sensor_max_age"])
     if package is None:
         checks.problems.append(about)
     else:
-        checks.hwinfo = about
+        checks.sensors = about
     for problem in checks.problems:
         print(f"{'warning' if pilot else 'check failed'}: {problem}", file=sys.stderr)
     if checks.problems and not pilot:
@@ -139,17 +137,17 @@ def run_checks(settings: dict, logs: Path, solver: Path, pilot: bool) -> Checks:
     return checks
 
 
-def cool_down(laptop: str, settings: dict, logs: Path, pilot: bool, log: RunLog) -> None:
-    """Rests for the set time, then waits until a fresh HWiNFO reading of the CPU package is at
-    most the laptop's level. Every reading is logged. In pilot mode, a laptop without a working
-    HWiNFO log only rests."""
+def cool_down(machine: str, settings: dict, logs: Path, pilot: bool, log: RunLog) -> None:
+    """Rests for the set time, then waits until a fresh sensor reading of the CPU package is at
+    most the machine's level. Every reading is logged. In pilot mode, a machine without a working
+    sensor log only rests."""
     rule = settings["cooldown"]
-    rest, limit = rule["rest_seconds"], rule["max_package_c"][laptop]
-    log.write("cooldown_start", laptop=laptop, rest_seconds=rest, max_package_c=limit)
+    rest, limit = rule["rest_seconds"], rule["max_package_c"][machine]
+    log.write("cooldown_start", machine=machine, rest_seconds=rest, max_package_c=limit)
     print(f"run_experiment: resting {rest:.0f} s, then until the package is at most {limit} C")
     time.sleep(rest)
     while True:
-        package, about = package_reading(logs, rule["hwinfo_max_age"])
+        package, about = package_reading(logs, rule["sensor_max_age"])
         log.write("cooldown_reading", package_c=package, source=about)
         if package is None and pilot:
             break
@@ -161,13 +159,13 @@ def cool_down(laptop: str, settings: dict, logs: Path, pilot: bool, log: RunLog)
     log.write("cooldown_end")
 
 
-# --- The coordinator side (Laptop 1, or a laptop alone) ---------------------------------------
+# --- The coordinator side (Laptop 1, or a machine alone) ---------------------------------------
 
 
 def start_worker(
     name: str, coordinator: str, port: int, logs: Path, solver: Path, console: Path | None
 ) -> subprocess.Popen[bytes]:
-    """This laptop's worker (python -m worker, with its default threads and table). Its console
+    """This machine's worker (python -m worker, with its default threads and table). Its console
     output goes to `console` if given."""
     command = [sys.executable, "-m", "worker", "--coordinator", coordinator, "--port", str(port)]
     command += ["--name", name, "--log-dir", str(logs), "--solver", str(solver)]
@@ -193,7 +191,7 @@ class Plan:
     """One run, as decided from the command line and the settings."""
 
     experiment: str  # E1, E2 or E3
-    laptop: str  # where the coordinator runs
+    machine: str  # where the coordinator runs
     link: str
     workers: tuple[str, ...]  # the worker names that must take part
     config: Config
@@ -211,10 +209,10 @@ def plan_run(args: argparse.Namespace, settings: dict) -> Plan:
             raise CheckFailed("scripts/experiment.toml has no start position and result yet")
         if experiment == "E3" and args.strategy not in DEPTH_RUNS:
             raise CheckFailed(f"E3 (the other depth) runs only {', '.join(DEPTH_RUNS)}")
-    workers = (args.laptop,) if alone else LAPTOPS
+    workers = (args.machine,) if alone else MACHINES
     allowed = workers + (tuple(f"{w}-pilot" for w in workers) if args.pilot else ())
     tag = "pilot_" if args.pilot else ""
-    where = args.laptop if alone else args.link
+    where = args.machine if alone else args.link
     run_id = f"{tag}{stamp()}_{experiment}_{args.strategy}_{where}_d{depth}_r{args.repeat}"
     calibration_set = ()
     if STRATEGIES[args.strategy].needs_calibration:
@@ -228,7 +226,7 @@ def plan_run(args: argparse.Namespace, settings: dict) -> Plan:
         strategy=args.strategy,
         workers=len(workers),
         expect=m.Outcome(run["expect"]) if run["expect"] else None,
-        # Alone, only this laptop's own worker may join: Laptop 2's worker role must not.
+        # Alone, only this machine's own worker may join: the PC's worker role must not.
         bind=f"tcp://{'127.0.0.1' if alone else '*'}:{args.port}",
         timeout=run["timeout"],
         split_after=run["split_after"],
@@ -236,18 +234,18 @@ def plan_run(args: argparse.Namespace, settings: dict) -> Plan:
         allowed_workers=allowed,
         log_dir=args.logs,
     )
-    return Plan(experiment, args.laptop, args.link, workers, config)
+    return Plan(experiment, args.machine, args.link, workers, config)
 
 
 def run_coordinator(args: argparse.Namespace, settings: dict) -> int:
-    """One run with the coordinator on this laptop. 0 if it is valid and its result right."""
+    """One run with the coordinator on this machine. 0 if it is valid and its result right."""
     plan = plan_run(args, settings)
     checks = run_checks(settings, args.logs, args.solver, args.pilot)
     with RunLog(log_path(plan.config.run_id, "experiment", args.logs)) as log:
         log.write(
             "experiment_start",
             experiment=plan.experiment,
-            laptop=plan.laptop,
+            machine=plan.machine,
             link=plan.link,
             repeat=args.repeat,
             pilot=args.pilot,
@@ -276,13 +274,13 @@ def run_coordinator(args: argparse.Namespace, settings: dict) -> int:
 
 
 def run_once(args: argparse.Namespace, settings: dict, plan: Plan, log: RunLog) -> Summary | None:
-    """Cools down, runs the coordinator with this laptop's worker, and checks the run. The
+    """Cools down, runs the coordinator with this machine's worker, and checks the run. The
     summary if the run ended and is valid; None (and the reason in the log) if not."""
-    cool_down(plan.laptop, settings, args.logs, args.pilot, log)
+    cool_down(plan.machine, settings, args.logs, args.pilot, log)
     coordinator = Coordinator(plan.config)
-    console = log.path.with_name(f"{plan.laptop}_worker_console.txt")
+    console = log.path.with_name(f"{plan.machine}_worker_console.txt")
     worker = start_worker(
-        plan.laptop, "127.0.0.1", coordinator.port, args.logs, args.solver, console
+        plan.machine, "127.0.0.1", coordinator.port, args.logs, args.solver, console
     )
     summary = None
     try:
@@ -305,7 +303,7 @@ def run_problems(summary: Summary, plan: Plan, worker_code: int, pilot: bool) ->
     elif summary.correct is False:  # None only in a pilot run without a known result
         problems.append(f"wrong result {summary.result}, expected {summary.expected}")
     if worker_code != 0:
-        problems.append(f"this laptop's worker exited with code {worker_code}")
+        problems.append(f"this machine's worker exited with code {worker_code}")
     joined = set(summary.workers)
     allowed = set(plan.workers) | ({f"{w}-pilot" for w in plan.workers} if pilot else set())
     if not joined <= allowed or len(joined) != len(plan.workers):
@@ -317,26 +315,26 @@ def run_problems(summary: Summary, plan: Plan, worker_code: int, pilot: bool) ->
 
 
 def pull_logs(peer: str, logs: Path, port: int, log: RunLog) -> None:
-    """Copies Laptop 2's new logs here; a failure is only reported (pull again later)."""
+    """Copies the PC's new logs here; a failure is only reported (pull again later)."""
     try:
         report = collect_logs.pull(peer, logs, port)
     except OSError as e:
         log.write("logs_not_pulled", error=str(e))
-        print(f"run_experiment: could not copy Laptop 2's logs: {e}", file=sys.stderr)
+        print(f"run_experiment: could not copy the PC's logs: {e}", file=sys.stderr)
         return
     log.write("logs_pulled", copied=report.copied, problems=report.problems)
     collect_logs.print_report(f"from {peer}", report)
 
 
-# --- The worker side (Laptop 2) ---------------------------------------------------------------
+# --- The worker side (the PC) ---------------------------------------------------------------
 
 
 def run_worker_loop(args: argparse.Namespace, settings: dict) -> int:
-    """Laptop 2: before each run, checks and cools down, then starts its worker, which joins the
+    """The PC: before each run, checks and cools down, then starts its worker, which joins the
     next run and exits at its end. A failed check is retried until it passes. All along, it
     offers its logs and the network echo to Laptop 1 on the log port, and runs `iperf3 -s`; the
     worker only connects out, so both can use the same port. Ends with Ctrl+C."""
-    address = args.coordinator or settings["network"]["laptop1"].get(args.link)
+    address = args.coordinator or settings["network"][COORDINATOR].get(args.link)
     if not address:
         raise CheckFailed(f"give Laptop 1's {args.link} address with --coordinator")
     name = f"{args.name}-pilot" if args.pilot else args.name
@@ -387,31 +385,31 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--logs", type=Path, default=LOGS_DIR)
     parser.add_argument("--solver", type=Path, default=SOLVER)
     parser.add_argument("--port", type=int, default=PORT, help="the messaging port")
-    parser.add_argument("--log-port", type=int, default=PORT, help="where Laptop 2 serves logs")
+    parser.add_argument("--log-port", type=int, default=PORT, help="where the PC serves logs")
     parser.add_argument("--pilot", action="store_true", help="checks only warn; not a result")
     roles = parser.add_subparsers(dest="role", required=True)
-    both = roles.add_parser("coordinator", help="Laptop 1: one run with both laptops (E2, E3)")
+    both = roles.add_parser("coordinator", help="Laptop 1: one run with both machines (E2, E3)")
     both.add_argument("--strategy", required=True, choices=sorted(STRATEGIES))
     both.add_argument("--link", required=True, choices=["cable", "wifi"])
     both.add_argument("--repeat", type=int, required=True)
     both.add_argument("--depth", type=int, help="E3: the other split depth")
-    both.add_argument("--peer", help="Laptop 2's address, to copy its logs (default: cable)")
-    both.set_defaults(laptop="laptop1")
-    alone = roles.add_parser("alone", help="either laptop: one E1 run, that laptop alone")
-    alone.add_argument("--laptop", required=True, choices=LAPTOPS)
+    both.add_argument("--peer", help="The PC's address, to copy its logs (default: cable)")
+    both.set_defaults(machine=COORDINATOR)
+    alone = roles.add_parser("alone", help="either machine: one E1 run, that machine alone")
+    alone.add_argument("--machine", required=True, choices=MACHINES)
     alone.add_argument("--repeat", type=int, required=True)
     alone.set_defaults(strategy="V3", link="local", depth=None, peer=None)
-    worker = roles.add_parser("worker", help="Laptop 2: join runs until Ctrl+C")
+    worker = roles.add_parser("worker", help="The PC: join runs until Ctrl+C")
     worker.add_argument("--link", required=True, choices=["cable", "wifi"])
     worker.add_argument("--coordinator", help="Laptop 1's address (default: its cable address)")
-    worker.add_argument("--name", default="laptop2", choices=LAPTOPS)
+    worker.add_argument("--name", default=PEER, choices=MACHINES)
     args = parser.parse_args(argv)
     settings = load_settings(args.settings)
     try:
         if args.role == "worker":
             return run_worker_loop(args, settings)
         if args.role == "coordinator" and args.peer is None:
-            args.peer = settings["network"]["laptop2"].get(args.link)  # Wi-Fi: give --peer
+            args.peer = settings["network"][PEER].get(args.link)  # Wi-Fi: give --peer
         return run_coordinator(args, settings)
     except CheckFailed as e:
         print(f"run_experiment: not started: {e}", file=sys.stderr)
