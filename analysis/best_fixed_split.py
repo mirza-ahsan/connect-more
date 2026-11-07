@@ -1,17 +1,17 @@
 """The best fixed split that would have been possible if every task's size had been known in
 advance (work plan step 35; methodology, RQ2).
 
-V0 deals the tasks out once, by the laptops' measured speeds, without knowing task sizes. This
+V0 deals the tasks out once, by the machines' measured speeds, without knowing task sizes. This
 works out, after a run, how long a fixed split could have taken had the sizes been known:
 - a task's size is the number of positions searched to solve it in that run;
-- each laptop's speed is its positions per second while it had work (metrics.run_speeds);
-- a laptop's time for its share is its share's positions over its speed, but never less than its
+- each machine's speed is its positions per second while it had work (metrics.run_speeds);
+- a machine's time for its share is its share's positions over its speed, but never less than its
   largest task alone on one thread (a task runs on one thread: speed / threads);
-- the tasks are dealt largest first, each to the laptop that would then finish sooner (LPT for
+- the tasks are dealt largest first, each to the machine that would then finish sooner (LPT for
   two machines of different speeds; close to the best possible split).
 The gap between V0's solve time and this time is the cost of not knowing task sizes; the rest of
 V0's loss against V1 to V3 is the cost of speed changing during the run. This is an estimate: it
-assumes a task searches the same positions on either laptop, and a constant speed.
+assumes a task searches the same positions on either machine, and a constant speed.
 
     uv run python -m analysis.best_fixed_split logs/<run_id>
 """
@@ -25,22 +25,22 @@ from analysis.load_runs import Run, load_run
 
 
 def best_split(sizes: list[int], speeds: dict[str, float], threads: dict[str, int]) -> dict:
-    """Deals the tasks largest first, each to the laptop that would finish it sooner. Returns
-    the estimated time and each laptop's share (tasks, positions, time)."""
+    """Deals the tasks largest first, each to the machine that would finish it sooner. Returns
+    the estimated time and each machine's share (tasks, positions, time)."""
     load = dict.fromkeys(speeds, 0)
     largest = dict.fromkeys(speeds, 0)
     count = dict.fromkeys(speeds, 0)
 
-    def finish(laptop: str, extra: int = 0, task: int = 0) -> float:
-        whole = (load[laptop] + extra) / speeds[laptop]
-        one_thread = max(largest[laptop], task) / (speeds[laptop] / threads[laptop])
+    def finish(machine: str, extra: int = 0, task: int = 0) -> float:
+        whole = (load[machine] + extra) / speeds[machine]
+        one_thread = max(largest[machine], task) / (speeds[machine] / threads[machine])
         return max(whole, one_thread)
 
     for size in sorted(sizes, reverse=True):
-        laptop = min(speeds, key=lambda name: finish(name, size, size))
-        load[laptop] += size
-        largest[laptop] = max(largest[laptop], size)
-        count[laptop] += 1
+        machine = min(speeds, key=lambda name: finish(name, size, size))
+        load[machine] += size
+        largest[machine] = max(largest[machine], size)
+        count[machine] += 1
     shares = {
         name: {"tasks": count[name], "positions": load[name], "seconds": finish(name)}
         for name in speeds

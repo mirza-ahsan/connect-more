@@ -4,8 +4,8 @@ A run folder logs/<run_id>/ holds coordinator.jsonl (every message sent and rece
 coordinator's clocks, clock checks, decisions, splits and the summary) and, for runs started by
 scripts/run_experiment.py, experiment.jsonl (settings, checks, cool-down, outcome). The coordinator
 log already holds every worker message, with the solver's own times, so the tables below are built
-from it; the worker logs (logs/workers/, and logs/laptop2/workers/ for Laptop 2) are only needed
-to line up a laptop's sensor log.
+from it; the worker logs (logs/workers/, and logs/pc/workers/ for the PC) are only needed
+to line up a machine's sensor log.
 
 Times: every table uses the coordinator's steady clock, in seconds from the first run task sent
 (`t0`), which is where the solve time starts. A worker's solver times count from its `ready`
@@ -27,6 +27,7 @@ from pathlib import Path
 import pandas as pd
 
 from common import messages as m
+from common.machines import PEER_DIR
 
 COORDINATOR_LOG = "coordinator.jsonl"
 EXPERIMENT_LOG = "experiment.jsonl"
@@ -66,11 +67,11 @@ class Run:
 
     @cached_property
     def info(self) -> dict:
-        """experiment, laptop, link, repeat, pilot (from experiment.jsonl; {} if not there)."""
+        """experiment, machine, link, repeat, pilot (from experiment.jsonl; {} if not there)."""
         start = next((r for r in self.experiment if r["event"] == "experiment_start"), None)
         if start is None:
             return {}
-        keys = ("experiment", "laptop", "link", "repeat", "pilot")
+        keys = ("experiment", "machine", "link", "repeat", "pilot")
         return {key: start.get(key) for key in keys}
 
     @cached_property
@@ -124,7 +125,7 @@ class Run:
 
     def wall_offsets(self) -> dict[str, float]:
         """Per worker: its normal clock minus Laptop 1's (seconds), the median over its clock
-        checks. Subtract it from a time read on that worker's laptop (its HWiNFO log) to put it
+        checks. Subtract it from a time read on that worker's machine (its sensor log) to put it
         on Laptop 1's normal clock."""
         return _medians(
             (r["worker"], r["worker_wall"] - (r["wall"] - (r["mono"] - r["coordinator_mono"])))
@@ -157,8 +158,8 @@ class Run:
         return self.hellos[worker]["mono_time"] + self.clock_offsets.get(worker, 0.0)
 
     @staticmethod
-    def laptop(worker: str) -> str:
-        """The laptop a worker ran on: its name, without the "-pilot" of a pilot-mode worker."""
+    def machine(worker: str) -> str:
+        """The machine a worker ran on: its name, without the "-pilot" of a pilot-mode worker."""
         return worker.removesuffix("-pilot")
 
     # --- Tables -------------------------------------------------------------------------------
@@ -285,9 +286,9 @@ def load_run(folder: Path) -> Run:
 
 def load_runs(logs: Path, pilot: bool = False) -> list[Run]:
     """Every run under `logs` (folders holding a coordinator log), oldest first: Laptop 1's, and
-    Laptop 2's own E1 runs, copied into logs/laptop2/. Pilot runs (ids starting with "pilot_")
+    The PC's own E1 runs, copied into logs/pc/. Pilot runs (ids starting with "pilot_")
     only if `pilot`."""
-    found = [*logs.glob(f"*/{COORDINATOR_LOG}"), *logs.glob(f"laptop2/*/{COORDINATOR_LOG}")]
+    found = [*logs.glob(f"*/{COORDINATOR_LOG}"), *logs.glob(f"{PEER_DIR}/*/{COORDINATOR_LOG}")]
     folders = sorted({p.parent for p in found}, key=lambda f: f.name)
     return [load_run(f) for f in folders if pilot or not f.name.startswith("pilot_")]
 

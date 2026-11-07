@@ -20,7 +20,7 @@ from analysis import metrics
 from analysis.load_runs import Run, load_runs, read_log, runs_table
 
 OUT = Path(__file__).resolve().parent / "out"
-GROUP = ["experiment", "laptop", "strategy", "link", "depth", "start"]
+GROUP = ["experiment", "machine", "strategy", "link", "depth", "start"]
 MAIN = [
     "solve_seconds",
     "S1",
@@ -29,9 +29,9 @@ MAIN = [
     "extra_vs_laptop1",
     "extra_vs_unsplit",
     "idle_share_laptop1",
-    "idle_share_laptop2",
+    "idle_share_pc",
     "tail_idle_laptop1",
-    "tail_idle_laptop2",
+    "tail_idle_pc",
     "positions",
     "positions_lost",
     "repeated_sent",
@@ -70,10 +70,10 @@ def per_run(runs: list[Run], unsplit: dict[str, float]) -> pd.DataFrame:
         if t:
             row.update(metrics.speedup(t, refs))
             for _, idle in metrics.idle_time(run).iterrows():
-                laptop = run.laptop(str(idle["worker"]))
-                row[f"idle_share_{laptop}"] = idle["idle_share"]
-                row[f"tail_idle_{laptop}"] = idle["tail_idle"]
-                row[f"thread_tail_idle_{laptop}"] = idle["thread_tail_idle"]
+                machine = run.machine(str(idle["worker"]))
+                row[f"idle_share_{machine}"] = idle["idle_share"]
+                row[f"tail_idle_{machine}"] = idle["tail_idle"]
+                row[f"thread_tail_idle_{machine}"] = idle["thread_tail_idle"]
         row.update(metrics.work(run, refs, unsplit.get(run.config["start"])))
         row.update(metrics.repeated_work(run))
         row.update(metrics.network_cost(run))
