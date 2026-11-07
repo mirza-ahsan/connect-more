@@ -6,8 +6,8 @@ There are two connections:
 
 | Connection | Where | Format |
 |---|---|---|
-| Worker ↔ solver | Same laptop. The worker starts `c4solve` and talks to it through its standard input and output | One line of plain words per message |
-| Coordinator ↔ worker | Between laptops, over ZeroMQ on TCP port 5555 | One JSON object per message |
+| Worker ↔ solver | Same machine. The worker starts `c4solve` and talks to it through its standard input and output | One line of plain words per message |
+| Coordinator ↔ worker | Between machines, over ZeroMQ on TCP port 5555 | One JSON object per message |
 
 ---
 
@@ -86,13 +86,13 @@ bye 3.501
 - One JSON object per message, in UTF-8.
 - Every message has `"type"` and `"v"` (the protocol version, `1`). A message with another version, or one that breaks these rules, is ignored. The worker also answers it with `error`; the coordinator only logs it, since it has no `error` message of its own.
 - Names use lower case and underscores. Times are in seconds.
-- Each side keeps its own clocks. Messages carry the sender's times, and `clock_check` (below) lets the coordinator line the two laptops' logs up afterwards.
+- Each side keeps its own clocks. Messages carry the sender's times, and `clock_check` (below) lets the coordinator line the two machines' logs up afterwards.
 
 ### Worker → coordinator
 
 | `type` | Other fields | When |
 |---|---|---|
-| `hello` | `worker` (name, for example `"laptop2"`), `threads`, `board`, `table_mb`, `commit`, `dirty`, `wall_time` (seconds since 1970), `mono_time` (the worker's steady clock) | Once, after the worker's solver has said `ready`. Both clocks are read at the moment `ready` arrived; the solver's `time` values count from that same moment, so `mono_time + time` puts any task event on the worker's steady clock |
+| `hello` | `worker` (name, for example `"pc"`), `threads`, `board`, `table_mb`, `commit`, `dirty`, `wall_time` (seconds since 1970), `mono_time` (the worker's steady clock) | Once, after the worker's solver has said `ready`. Both clocks are read at the moment `ready` arrived; the solver's `time` values count from that same moment, so `mono_time + time` puts any task event on the worker's steady clock |
 | `give_me_work` | `free`: how many **more** tasks the coordinator may send, on top of any it has sent already (a credit) | First right after `welcome`, with `free` = 2 × threads (one running and one waiting task per thread). Then `free` = 1 each time a task ends (result, stopped, cancelled, or an error for that task). The coordinator adds the credits up and never sends more tasks than the credit allows, so a worker never holds more than one waiting task per thread |
 | `started` | `task_id`, `thread`, `time` | Passed on from the solver |
 | `result` | `task_id`, `outcome` (`"win"`, `"draw"`, `"loss"`), `positions`, `seconds`, `time` | Passed on from the solver |
@@ -111,13 +111,13 @@ bye 3.501
 | `no_work` | — | For information only: the coordinator has the worker's credit but no task right now. It keeps the credit and sends tasks as soon as some are available, so the worker never needs to ask again |
 | `stop` | `task_id` | Split a running task (V2 and V3) |
 | `cancel` | `task_id` | The task's answer is no longer needed |
-| `clock_check` | `check_id`, `sent_time` | A few times per run. The coordinator measures the round trip, which is also our network delay measurement, and the gap between the two laptops' clocks |
+| `clock_check` | `check_id`, `sent_time` | A few times per run. The coordinator measures the round trip, which is also our network delay measurement, and the gap between the two machines' clocks |
 | `run_over` | — | The run has finished. The worker sends `quit` to its solver, waits for `bye`, closes its log and exits |
 
 ### Example
 ```json
-{"type": "hello", "v": 1, "worker": "laptop2", "threads": 8, "board": "7x6", "table_mb": 1024, "commit": "76208ebc0e2a", "dirty": false, "wall_time": 1793600000.12, "mono_time": 5123.4}
-{"type": "welcome", "v": 1, "worker": "laptop2", "run_id": "2026-11-04_V1_cable_r1", "strategy": "V1"}
+{"type": "hello", "v": 1, "worker": "pc", "threads": 16, "board": "7x6", "table_mb": 1024, "commit": "76208ebc0e2a", "dirty": false, "wall_time": 1793600000.12, "mono_time": 5123.4}
+{"type": "welcome", "v": 1, "worker": "pc", "run_id": "2026-11-04_V1_cable_r1", "strategy": "V1"}
 {"type": "give_me_work", "v": 1, "free": 16}
 {"type": "task", "v": 1, "task_id": "t17", "moves": "4453"}
 {"type": "started", "v": 1, "task_id": "t17", "thread": 3, "time": 12.004}
@@ -128,5 +128,5 @@ bye 3.501
 
 ## Open questions for the group
 1. **V3, sharing solved results:** settled without a protocol change. The coordinator keeps every answer it receives and passes it on to the copies of that position in its own task tree; a task whose position is already being solved is held back and gets that answer, and a known position is never sent. No answer is sent into a solver's table, so the version stays 1.
-2. **Who gives task ids:** this draft says the coordinator does (for example `t1`, `t2`, …), so ids are unique across both laptops.
+2. **Who gives task ids:** this draft says the coordinator does (for example `t1`, `t2`, …), so ids are unique across both machines.
 3. **`free` in `give_me_work`:** settled as a credit (see the table): a worker holds at most one running and one waiting task per thread, so a thread never sits idle while a new task travels over the network.

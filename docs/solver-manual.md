@@ -145,8 +145,8 @@ If your positions-searched counts are many times higher than his, something in p
 
 Pons's solver solves one position on one thread. Ours must also:
 
-1. **Use every core:** 20 threads on Laptop 1 and 8 on Laptop 2, each solving a different task at the same time.
-2. **Share one memory table** between all threads on the laptop, kept for the whole run.
+1. **Use every core:** 20 threads on Laptop 1 and 16 on the PC, each solving a different task at the same time.
+2. **Share one memory table** between all threads on the machine, kept for the whole run.
 3. **Stop or cancel a task** in the middle, when the coordinator asks (strategies V2 and V3).
 4. **Report progress every second:** the total positions searched so far.
 5. **Talk to the worker** through text lines.
@@ -201,7 +201,7 @@ After adding a new file, re-run the configure step.
 
 **Rules:**
 - Width and height come **only** from `C4_WIDTH` and `C4_HEIGHT`, which the build sets for each board size. Never type 7 or 6.
-- All board numbers are **unsigned 64-bit**. On Windows `long` is only 32 bits, so never use `long` or `unsigned long` for a board.
+- All board numbers are **unsigned 64-bit** (`uint64_t`). The size of `long` differs between systems (32 bits on Windows), so never use `long` or `unsigned long` for a board.
 - To count set bits, use the standard library bit-counting function (see `CLAUDE.md`).
 - The helper masks (the bottom cell of every column, and the whole board) are worked out from width and height once, when the program is built.
 - Check at build time that width × (height + 1) ≤ 64, and stop the build with a clear message if not.
@@ -276,7 +276,7 @@ After adding a new file, re-run the configure step.
 - each thread's busy and idle times.
 
 **How it works:**
-1. At start-up, create one solver thread per logical processor (20 on Laptop 1, 8 on Laptop 2). Allow a different number for tests.
+1. At start-up, create one solver thread per logical processor (20 on Laptop 1, 16 on the PC). Allow a different number for tests.
 2. Each thread repeatedly:
    - waits for a task;
    - takes the oldest one;
@@ -292,7 +292,7 @@ After adding a new file, re-run the configure step.
 
 **Rules:**
 - Use the standard C++ thread, mutex, condition-variable and atomic tools.
-- Do **not** pin threads to particular cores; the methodology leaves that to Windows on purpose.
+- Do **not** pin threads to particular cores; the methodology leaves that to the operating system on purpose.
 - Measure time with the steady clock, which never jumps.
 - Keep each thread's counter apart from the others in memory, so threads don't slow each other down by sharing a cache line.
 
@@ -373,7 +373,7 @@ Each test file is its own small program that returns 0 if everything passes. Run
 1. **Board** (`position`), with its tests. Check: `test_position` passes.
 2. **Search without the table,** using centre-first order, as in Pons part 5. Check: Pons's End-Easy file gives 0 wrong answers. It will be slow on the harder files; that is expected.
 3. **Add the table** (part 7), then **null-window weak solving** (part 8), then **safe moves** (part 9), then **move scores** (part 10), then the **compact table** (part 11), then **lower bounds** (part 12). Run the test files after **each** addition: answers must stay correct, and positions searched should fall. Write down the counts after each step; they are good material for the paper.
-4. **Verify and single modes** in `c4solve`. Check: all six files give 0 wrong answers on Laptop 1 and on Laptop 2.
+4. **Verify and single modes** in `c4solve`. Check: all six files give 0 wrong answers on Laptop 1 and on the PC.
 5. **Thread-safe table and stop flag.** Check: the table and solver tests pass, including the stop test.
 6. **Task pool** (many threads). Check: `test_task_pool` passes, and all six files still give 0 wrong answers with all threads.
 7. **Protocol and service mode.** Check: start `c4solve` with no options, type a solve line by hand, and get started, progress and result lines back.
@@ -384,7 +384,7 @@ Each test file is its own small program that returns 0 if everything passes. Run
 
 ## 8. Mistakes to avoid
 
-- **Using `long` for boards.** It is 32 bits on Windows, and the board will silently break.
+- **Using `long` for boards.** Its size depends on the system (32 bits on Windows), and the board can silently break.
 - **Writing 7 or 6 instead of `C4_WIDTH` and `C4_HEIGHT`.** The small boards will then give wrong answers.
 - **Storing values after a stop.** It poisons the shared table and causes wrong answers in other tasks.
 - **Storing the key and value as two separate writes.** With many threads, a reader can mix two entries.
