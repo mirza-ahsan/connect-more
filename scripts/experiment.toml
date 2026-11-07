@@ -4,9 +4,9 @@
 
 [run]
 start = ""             # pilot: start position, as a move string ("" = empty board)
-expect = ""            # pilot: its known result for the player to move: "win", "draw" or "loss"
+expect = "win"         # pilot: its known result for the player to move: "win", "draw" or "loss"
 depth = 3              # pilot: split depth for E1 and E2 (E3 uses the other one, 3 or 4)
-split_after = 60.0     # pilot: V2/V3 time limit, seconds a task may run before it is split
+split_after = 40.0     # pilot: V2/V3 time limit, seconds a task may run before it is split
 calibration_file = "solver/tests/data/7x6/Test_L1_R2.txt"  # pilot: V0 calibration set
 calibration_count = 200                                    # pilot: positions used from it
 timeout = 7200.0       # seconds before a run is given up
@@ -15,8 +15,8 @@ timeout = 7200.0       # seconds before a run is given up
 # Before each run, a machine rests for at least rest_seconds, then until its CPU package
 # temperature (from its live sensor log, scripts/sensor_log.py) is at most max_package_c.
 # Pilot: both values. Laptop 1 reads coretemp "Package id 0", the PC k10temp "Tctl".
-rest_seconds = 120.0
-max_package_c = { laptop1 = 55.0, pc = 55.0 }
+rest_seconds = 60.0
+max_package_c = { laptop1 = 51.0, pc = 52.0 }
 poll_seconds = 5.0
 sensor_max_age = 10.0  # seconds; an older last sample means the sensor log is not running
 
