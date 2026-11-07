@@ -1,22 +1,22 @@
-"""Copies Laptop 2's logs to Laptop 1 after each run, and backs every log up after a session.
+"""Copies the PC's logs to Laptop 1 after each run, and backs every log up after a session.
 
-Laptop 2 offers its logs folder, read only, on the messaging port while no run of its own is going
+The PC offers its logs folder, read only, on the messaging port while no run of its own is going
 on (the worker role of scripts/run_experiment.py does this all session by itself):
     uv run python -m scripts.collect_logs serve
-Laptop 1 copies what is new or has grown into logs/laptop2/ (scripts/run_experiment.py does this
-after each run; do it once more at the end of a session, after HWiNFO has stopped logging):
+Laptop 1 copies what is new or has grown into logs/pc/ (scripts/run_experiment.py does this
+after each run; do it once more at the end of a session, after the sensor logs have been stopped):
     uv run python -m scripts.collect_logs pull --peer 192.168.2.2
 After a session, everything in logs/ is copied to a second place (a USB drive, another disk):
-    uv run python -m scripts.collect_logs backup --to E:/connect-more-backup
+    uv run python -m scripts.collect_logs backup --to /run/media/$USER/<drive>/connect-more-backup
 
-How copies work: ZeroMQ on TCP 5555, which the firewall already allows on both laptops, so no admin
+How copies work: ZeroMQ on TCP 5555, which the firewall already allows on both machines, so no admin
 setup and no new tools are needed. This is a separate tool, not part of the run protocol in
 docs/protocol.md. Each request is a JSON frame ({"op": "list"}, or {"op": "get", "path", "offset",
 "size"}); each answer is a JSON frame and a data frame. A file is sent up to the size it had when
 it was listed, in pieces of CHUNK bytes; the last piece comes with the SHA-256 of exactly those
 bytes, which the receiving side checks. The same server answers {"op": "echo"} by sending its
 second frame back (for scripts/network_check.py); `serve` from the command line also starts
-`iperf3 -s` if iperf3 is installed, so one server on Laptop 2 serves both scripts.
+`iperf3 -s` if iperf3 is installed, so one server on the PC serves both scripts.
 
 Raw logs are never changed. Logs only ever grow, so a copy that is shorter than the original is
 completed from where it ends; it replaces the old copy only once the whole of it matches the
@@ -37,13 +37,13 @@ from pathlib import Path, PurePosixPath
 
 import zmq
 
+from common.machines import PEER_DIR
 from common.runlog import LOGS_DIR, stamp
 from scripts.helpers import PORT, iperf_server, requester
 
 CHUNK = 4 << 20  # bytes per piece
 TIMEOUT_MS = 30_000
 POLL_MS = 200
-LAPTOP2_DIR = "laptop2"  # where Laptop 2's logs go inside Laptop 1's logs folder
 PARTIAL = ".partial"  # a copy being made; never offered, copied or backed up
 
 
@@ -86,7 +86,7 @@ def inside(root: Path, relative: str) -> Path:
     return path
 
 
-# --- Serving (Laptop 2) -----------------------------------------------------------------------
+# --- Serving (the PC) -----------------------------------------------------------------------
 
 
 def serve(root: Path, port: int = PORT, stop: threading.Event | None = None) -> None:
@@ -153,8 +153,8 @@ def _ask(socket: zmq.Socket, request: dict) -> tuple[dict, bytes]:
 
 def pull(peer: str, logs: Path = LOGS_DIR, port: int = PORT) -> Report:
     """Copies every file of the peer's logs folder that is missing here or has grown since it was
-    last copied, into logs/laptop2/. Raises OSError if the peer does not answer."""
-    into = logs / LAPTOP2_DIR
+    last copied, into logs/pc/. Raises OSError if the peer does not answer."""
+    into = logs / PEER_DIR
     report = Report()
     try:
         with requester(f"tcp://{peer}:{port}", TIMEOUT_MS) as socket:
@@ -273,12 +273,12 @@ def main(argv: list[str]) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--logs", type=Path, default=LOGS_DIR, help="this laptop's logs folder")
+    parser.add_argument("--logs", type=Path, default=LOGS_DIR, help="this machine's logs folder")
     parser.add_argument("--port", type=int, default=PORT)
     roles = parser.add_subparsers(dest="role", required=True)
-    roles.add_parser("serve", help="Laptop 2: offer the logs folder until Ctrl+C")
-    pull_parser = roles.add_parser("pull", help="Laptop 1: copy Laptop 2's new logs")
-    pull_parser.add_argument("--peer", required=True, help="Laptop 2's address")
+    roles.add_parser("serve", help="The PC: offer the logs folder until Ctrl+C")
+    pull_parser = roles.add_parser("pull", help="Laptop 1: copy the PC's new logs")
+    pull_parser.add_argument("--peer", required=True, help="The PC's address")
     backup_parser = roles.add_parser("backup", help="copy every log to a second place")
     backup_parser.add_argument("--to", type=Path, required=True)
     args = parser.parse_args(argv)
