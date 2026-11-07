@@ -23,7 +23,7 @@ Follow this for every experiment session (work plan steps 24 and 28–32). Pilot
   It writes `logs/sensors/<date-time>_<machine>.jsonl`, one sample a second. The run scripts read the newest log there for the cool-down and refuse to start if it has no sample from the last 10 s.
 - [ ] **Network** for this block of runs:
   - Cable: the PC's Ethernet port goes to Laptop 1's USB-C adapter (not the router); `nmcli connection up c4-cable` on both (again after every reboot); `ip -br addr` shows 192.168.2.1 and 192.168.2.2.
-  - Wi-Fi: the PC's cable unplugged, both machines on the chosen Wi-Fi network; write down both Wi-Fi addresses from `ip -br addr`.
+  - Wi-Fi: both machines on the chosen Wi-Fi network, and the cable link down on both (`nmcli connection down c4-cable`; up again for the next cable block); write down both Wi-Fi addresses from `ip -br addr`.
 - [ ] **Firewall**: ufw allows TCP 5555 and 5201 from the cable and Wi-Fi subnets on both machines (ENVIRONMENT.md section 6).
 
 ## 2. Start the PC (once per session, and again when the link changes)

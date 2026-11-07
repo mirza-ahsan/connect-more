@@ -21,7 +21,7 @@ This file records the exact hardware, software and settings of both machines so 
 | GPU | NVIDIA RTX A1000 4 GB (not used in this project) | AMD Radeon integrated graphics (not used in this project) |
 | Ethernet | None built in; USB-C gigabit Ethernet adapter: ASIX AX88179B (USB ID `0b95:1790`, `cdc_ncm` driver), `enp0s20f0u1u1c2` | Built in: Realtek RTL8125 2.5 GbE (`r8169` driver), `enp12s0` |
 | Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | MediaTek MT7921 (`mt7921e`), `wlp13s0` |
-| CPU power limits | Under Windows: PL1 static 115 W, PL1 dynamic 40 W, PL2 115 W. Under Linux (from the `sensor_log_start` record, on the charger): `intel-rapl:0` PL1 76 W, PL2 115 W; `intel-rapl-mmio:0` PL1 45 W, PL2 115 W. The lower PL1, 45 W, is the one that holds | Not shown by Linux (AMD's RAPL interface has no limits). AMD's default for a 65 W part is 88 W package power (maker figure, not measured) |
+| CPU power limits | Under Windows: PL1 static 115 W, PL1 dynamic 40 W, PL2 115 W. Under Linux (from the `sensor_log_start` record, on the charger): `intel-rapl:0` PL1 76 W, PL2 115 W; `intel-rapl-mmio:0` PL2 115 W and a PL1 that **moves with temperature**: 45 W read right after the long builds, 76 W at 40 °C idle (7 Nov). The lower of the two PL1 values holds at any moment, so the laptop's sustained limit changes during a run, like Windows' dynamic PL1. Both are logged every second (`pl1_w`, `pl1_mmio_w`) | Not shown by Linux (AMD's RAPL interface has no limits). AMD's default for a 65 W part is 88 W package power (maker figure, not measured) |
 | Cooling | Laptop (throttles under long loads) | Desktop tower cooler |
 
 ---
@@ -156,7 +156,7 @@ Omarchy enables ufw and refuses incoming connections by default. Allow the two p
 | Wi-Fi subnet (home) | 192.168.18.0/24 | Same network (`wlp13s0`) |
 | Direct cable address | 192.168.2.1/24 (USB-C adapter) | 192.168.2.2/24 (`enp12s0`) |
 
-- The PC's only Ethernet port normally goes to the router. **For cable runs**, plug it into Laptop 1's USB-C adapter instead. **For Wi-Fi runs**, unplug the PC's cable and connect its Wi-Fi, so both machines really talk over Wi-Fi.
+- The PC's only Ethernet port normally goes to the router. **For cable runs**, plug it into Laptop 1's USB-C adapter instead. **For Wi-Fi runs**, both machines are on Wi-Fi; take the cable link down on both (`nmcli connection down c4-cable`) so nothing can go over it, and bring it up again (`nmcli connection up c4-cable`) for the next cable block. Since 7 Nov the PC's cable stays plugged into the laptop, and the PC reaches the internet over Wi-Fi.
 - Cable addresses with NetworkManager, once per machine: `nmcli connection add type ethernet ifname <interface> con-name c4-cable ipv4.method manual ipv4.addresses 192.168.2.x/24 ipv6.method disabled`, then `nmcli connection up c4-cable` when the cable is plugged in.
 - The cable subnet (192.168.2.x) does not clash with the home Wi-Fi (192.168.18.x). On another Wi-Fi network, check for a clash with `ip -br addr` and switch the cable to 10.42.0.x if needed.
 - Messaging port: TCP 5555.
@@ -243,4 +243,5 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver /sys/devices/system/cpu/
 | 2026-11-07 | Both | **Moved to Linux.** Laptop 2 is no longer available; a desktop PC (Ryzen 7 7700) replaces it as `pc`. Both machines run Omarchy. Toolchain now from pacman: GCC 16.2.1, CMake 4.4.4, LLVM 23.1.3, uv 0.13.4 (`CM_EXPECTED_GCC_VERSION` and `required-version` updated; `uv.lock` unchanged). HWiNFO replaced by `scripts/sensor_log.py`; firewall by ufw; cable addresses by NetworkManager |
 | 2026-11-07 | PC | Installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; all smoke tests pass |
 | 2026-11-07 | Laptop 1 | Linux setup: installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; `c4-cable` (192.168.2.1/24 on `enp0s20f0u1u1c2`, no autoconnect), PC answers ping; recorded kernel, `intel_pstate` settings, power limits (PL1 45 W holds) and the ASIX AX88179B adapter; all smoke tests pass |
+| 2026-11-07 | Laptop 1 | Correction to the Laptop 1 row above: "PL1 45 W holds" is wrong. The `intel-rapl-mmio:0` PL1 moves with temperature (45 W hot, 76 W at idle); it is left as the platform sets it and logged every second (decision log C.11) |
 | 2026-11-07 | Both | `performance` governor on both machines (Laptop 1: set after every boot). Recorded the PC's memory (1 × 16 GB, single channel, 4800 MT/s), the stay-awake steps, Dell's thermal profile under Linux, Laptop 1's cable ping; one per-boot list in section 9 |
