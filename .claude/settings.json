@@ -28,9 +28,14 @@
       "Bash(git add .)",
       "Bash(git add --all)",
       "Bash(git commit -a:*)",
-      "Bash(winget install:*)",
-      "Bash(winget upgrade:*)",
-      "Bash(uv lock --upgrade:*)"
+      "Bash(uv lock --upgrade:*)",
+      "Bash(sudo pacman:*)",
+      "Bash(pacman -S:*)",
+      "Bash(pacman -R:*)",
+      "Bash(pacman -U:*)",
+      "Bash(yay:*)",
+      "Bash(paru:*)",
+      "Bash(uv self update:*)"
     ],
     "ask": [
       "Bash(git add:*)",
