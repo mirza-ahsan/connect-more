@@ -1,9 +1,8 @@
 """Tests for the analysis scripts (analysis/): exact numbers on a small hand-made coordinator log,
-then the whole chain (tables and figures) on a real run of this laptop with a synthetic HWiNFO log.
+then the whole chain (tables and figures) on a real run of this machine with a synthetic sensor log.
 """
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -11,8 +10,7 @@ import pytest
 from analysis import best_fixed_split, figures, metrics, tables
 from analysis.load_runs import Run, load_run, load_runs, runs_table
 from scripts import run_experiment as rx
-from tests.helpers import free_port, needs_solver
-from tests.test_load_hwinfo import ROWS, write
+from tests.helpers import free_port, needs_solver, write_sensor_log
 from tests.test_run_experiment import settings
 
 T0 = 10.0  # coordinator clock when the first task is sent
@@ -146,41 +144,37 @@ def test_metrics(tmp_path: Path) -> None:
 
 
 def test_best_split() -> None:
-    # 8 tasks of 10 positions, two laptops of 2 positions/s with one thread each: 4 tasks each.
+    # 8 tasks of 10 positions, two machines of 2 positions/s with one thread each: 4 tasks each.
     even = best_fixed_split.best_split([10] * 8, {"a": 2.0, "b": 2.0}, {"a": 1, "b": 1})
     assert even["seconds"] == 20.0
     # With 4 threads, a single task runs on one thread at a quarter of the speed: 10 / 0.5 s.
     threads = best_fixed_split.best_split([10, 10], {"a": 2.0, "b": 2.0}, {"a": 4, "b": 4})
     assert threads["seconds"] == 20.0
-    # One task larger than everything else: one thread of a 4-thread laptop does 1/4 of its
-    # speed, so the big task alone takes 100 / (8 / 4) = 50 s on the faster laptop.
+    # One task larger than everything else: one thread of a 4-thread machine does 1/4 of its
+    # speed, so the big task alone takes 100 / (8 / 4) = 50 s on the faster machine.
     big = best_fixed_split.best_split([100, 1], {"a": 8.0, "b": 1.0}, {"a": 4, "b": 1})
     assert big["seconds"] == 50.0 and big["shares"]["a"]["tasks"] == 1
 
 
-def synthetic_hwinfo(path: Path, start_wall: float, seconds: int) -> None:
-    """An HWiNFO log with one row per second around a run, in local time like HWiNFO's."""
-    rows = []
-    for i in range(seconds):
-        taken = datetime.fromtimestamp(start_wall + i)
-        row = list(ROWS[i % len(ROWS)])
-        row[0] = f"{taken.day}.{taken.month}.{taken.year}"
-        row[1] = taken.strftime("%H:%M:%S.%f")[:-3]
-        rows.append(row)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write(path, rows)
+def test_set_aside_sensor_copies_are_not_read(tmp_path: Path) -> None:
+    folder = tmp_path / "pc/sensors"
+    write_sensor_log(folder / "s.jsonl", [1.0], [50.0])
+    write_sensor_log(folder / "s.rewritten-2026-11-07_10-00-00.jsonl", [1.0], [99.0])
+    (frame,) = figures.read_sensors(tmp_path)["pc"]
+    assert frame["package_c"].tolist() == [50.0]
 
 
 @needs_solver("7x6")
 def test_tables_and_figures_on_a_real_run(tmp_path: Path) -> None:
     logs = tmp_path / "logs"
     argv = ["--pilot", "--settings", str(settings(tmp_path)), "--logs", str(logs)]
-    argv += ["--port", str(free_port()), "alone", "--laptop", "laptop1", "--repeat", "1"]
+    argv += ["--port", str(free_port()), "alone", "--machine", "laptop1", "--repeat", "1"]
     assert rx.main(argv) == 0
     (run,) = load_runs(logs, pilot=True)
     assert run.valid is True and run.info["experiment"] == "E1"
     assert run.t0_wall is not None
-    synthetic_hwinfo(logs / "hwinfo/session.CSV", run.t0_wall - 5, 15)
+    walls = [run.t0_wall - 5 + i for i in range(15)]  # one sample a second around the run
+    write_sensor_log(logs / "sensors/session.jsonl", walls, [50.0 + i for i in range(15)])
 
     out = tmp_path / "out"
     assert tables.main(["--logs", str(logs), "--out", str(out), "--pilot"]) == 0

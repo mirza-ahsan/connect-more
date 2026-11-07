@@ -1,8 +1,8 @@
 """Tests for scripts/run_experiment.py: the checks before a run, the cool-down, and whole runs on
-this laptop (pilot mode, since the tests run from a working tree with changes)."""
+this machine (pilot mode, since the tests run from a working tree with changes)."""
 
 import threading
-from datetime import datetime, timedelta
+import time
 from pathlib import Path
 
 import pytest
@@ -11,13 +11,12 @@ from common.runlog import RunLog
 from coordinator.server import Config, Summary
 from scripts import collect_logs
 from scripts import run_experiment as rx
-from tests.helpers import free_port, needs_solver, read_log, start_worker
-from tests.test_load_hwinfo import ROWS, write
+from tests.helpers import free_port, needs_solver, read_log, start_worker, write_sensor_log
 
 HEADER_OK = [
     "c4solve 0.1.0",
     "commit abc123def456, dirty false",
-    "build Release, GNU 16.1.0, thread model posix",
+    "build Release, GNU 16.2.1, thread model posix",
     "board 7x6",
 ]
 
@@ -35,7 +34,8 @@ def settings(tmp_path: Path) -> Path:
 def test_the_settings_file_is_valid() -> None:
     loaded = rx.load_settings(rx.SETTINGS)
     assert {"run", "cooldown", "network"} <= set(loaded)
-    assert set(loaded["cooldown"]["max_package_c"]) == set(rx.LAPTOPS)
+    assert set(loaded["cooldown"]["max_package_c"]) == set(rx.MACHINES)
+    assert set(loaded["network"]) == set(rx.MACHINES)
 
 
 @pytest.mark.parametrize(
@@ -51,7 +51,7 @@ def test_the_settings_file_is_valid() -> None:
             "built with",
         ),
         (
-            [*HEADER_OK[:2], "build Debug, GNU 16.1.0", HEADER_OK[3]],
+            [*HEADER_OK[:2], "build Debug, GNU 16.2.1", HEADER_OK[3]],
             {"commit": "abc123def456", "dirty": False},
             "not a release",
         ),
@@ -61,41 +61,37 @@ def test_the_settings_file_is_valid() -> None:
 def test_check_build(
     monkeypatch: pytest.MonkeyPatch, header: object, repository: dict, problem: str | None
 ) -> None:
-    info = {"repository": repository, "solver": "c4solve.exe", "solver_header": header}
+    info = {"repository": repository, "solver": "c4solve", "solver_header": header}
     monkeypatch.setattr(rx, "build_info", lambda solver: info)
     checks = rx.Checks()
-    rx.check_build(checks, Path("c4solve.exe"))
+    rx.check_build(checks, Path("c4solve"))
     if problem is None:
         assert checks.problems == []
     else:
         assert any(problem in p for p in checks.problems), checks.problems
 
 
-def live_hwinfo(logs: Path, temperatures: list[str], age: float = 0.0) -> Path:
-    """An HWiNFO log still being written, whose last row is `age` seconds old."""
-    now = datetime.now() - timedelta(seconds=age)
-    rows = []
-    for i, temperature in enumerate(temperatures):
-        taken = now - timedelta(seconds=len(temperatures) - 1 - i)
-        row = list(ROWS[0])
-        row[0] = f"{taken.day}.{taken.month}.{taken.year}"
-        row[1] = taken.strftime("%H:%M:%S.%f")[:-3]
-        row[6] = temperature
-        rows.append(row)
-    (logs / "hwinfo").mkdir(parents=True, exist_ok=True)
-    return write(logs / "hwinfo/session.CSV", rows, stopped=False)
+def live_sensors(logs: Path, temperatures: list[float | None], age: float = 0.0) -> Path:
+    """A sensor log still being written, one sample a second, the last one `age` seconds old."""
+    last = time.time() - age
+    walls = [last - (len(temperatures) - 1 - i) for i in range(len(temperatures))]
+    return write_sensor_log(logs / "sensors/session.jsonl", walls, temperatures, partial='{"mo')
 
 
 def test_package_reading(tmp_path: Path) -> None:
     package, about = rx.package_reading(tmp_path, 10)
-    assert package is None and "no HWiNFO log" in about
+    assert package is None and "no sensor log" in about
 
-    live_hwinfo(tmp_path, ["60", "48"])
-    assert rx.package_reading(tmp_path, 10) == (48, "session.CSV")
+    live_sensors(tmp_path, [60.0, 48.0])
+    assert rx.package_reading(tmp_path, 10) == (48.0, "session.jsonl")
 
-    live_hwinfo(tmp_path / "old", ["48"], age=60)  # HWiNFO stopped a minute ago
+    live_sensors(tmp_path / "old", [48.0], age=60)  # the sensor log stopped a minute ago
     package, about = rx.package_reading(tmp_path / "old", 10)
-    assert package is None and "no row from the last" in about
+    assert package is None and "no sample from the last" in about
+
+    live_sensors(tmp_path / "blind", [None])  # no temperature sensor found
+    package, about = rx.package_reading(tmp_path / "blind", 10)
+    assert package is None and "no CPU package temperature" in about
 
 
 def test_cool_down_waits_for_a_fresh_low_reading(
@@ -107,7 +103,7 @@ def test_cool_down_waits_for_a_fresh_low_reading(
         "rest_seconds": 0.0,
         "max_package_c": {"laptop1": 55.0},
         "poll_seconds": 0.0,
-        "hwinfo_max_age": 10.0,
+        "sensor_max_age": 10.0,
     }
     with RunLog(tmp_path / "log.jsonl") as log:
         rx.cool_down("laptop1", {"cooldown": rule}, tmp_path, False, log)
@@ -118,14 +114,14 @@ def test_cool_down_waits_for_a_fresh_low_reading(
 
 def test_no_measured_run_without_the_pilot_settings(tmp_path: Path) -> None:
     argv = ["--settings", str(rx.SETTINGS), "--logs", str(tmp_path), "alone"]
-    assert rx.main([*argv, "--laptop", "laptop1", "--repeat", "1"]) == 2  # nothing is run
+    assert rx.main([*argv, "--machine", "laptop1", "--repeat", "1"]) == 2  # nothing is run
     assert not list(tmp_path.iterdir())
 
 
 @needs_solver("7x6")
 def test_pilot_run_alone(tmp_path: Path) -> None:
     argv = ["--pilot", "--settings", str(settings(tmp_path)), "--logs", str(tmp_path / "logs")]
-    argv += ["--port", str(free_port()), "alone", "--laptop", "laptop1", "--repeat", "1"]
+    argv += ["--port", str(free_port()), "alone", "--machine", "laptop1", "--repeat", "1"]
     assert rx.main(argv) == 0
     (run_dir,) = [p for p in (tmp_path / "logs").iterdir() if p.name.startswith("pilot_")]
     assert run_dir.name.endswith("_E1_V3_laptop1_d3_r1")
@@ -139,17 +135,17 @@ def test_pilot_run_alone(tmp_path: Path) -> None:
 
 @needs_solver("7x6")
 def test_pilot_run_with_two_laptops_copies_the_other_logs(tmp_path: Path) -> None:
-    """Laptop 2 is played by a worker process and a log server on this laptop."""
-    laptop2_logs = tmp_path / "laptop2-logs"
-    (laptop2_logs / "sessions").mkdir(parents=True)
-    (laptop2_logs / "sessions/role.jsonl").write_bytes(b'{"event":"worker_role_start"}\n')
+    """The PC is played by a worker process and a log server on this machine."""
+    pc_logs = tmp_path / "pc-logs"
+    (pc_logs / "sessions").mkdir(parents=True)
+    (pc_logs / "sessions/role.jsonl").write_bytes(b'{"event":"worker_role_start"}\n')
     log_port, port = free_port(), free_port()
     stop = threading.Event()
     server = threading.Thread(
-        target=collect_logs.serve, args=(laptop2_logs, log_port, stop), daemon=True
+        target=collect_logs.serve, args=(pc_logs, log_port, stop), daemon=True
     )
     server.start()
-    worker = start_worker("laptop2", port, laptop2_logs)
+    worker = start_worker("pc", port, pc_logs)
     try:
         argv = ["--pilot", "--settings", str(settings(tmp_path)), "--logs", str(tmp_path / "l1")]
         argv += ["--port", str(port), "--log-port", str(log_port), "coordinator"]
@@ -163,9 +159,9 @@ def test_pilot_run_with_two_laptops_copies_the_other_logs(tmp_path: Path) -> Non
     (run_dir,) = [p for p in (tmp_path / "l1").iterdir() if p.name.startswith("pilot_")]
     assert "_E2_V1_cable_d3_r2" in run_dir.name
     end = next(r for r in read_log(run_dir / "experiment.jsonl") if r["event"] == "experiment_end")
-    assert set(end["summary"]["workers"]) == {"laptop1", "laptop2"}
-    assert (tmp_path / "l1/laptop2/sessions/role.jsonl").exists()
-    assert list((tmp_path / "l1/laptop2/workers").glob("*_laptop2.jsonl"))
+    assert set(end["summary"]["workers"]) == {"laptop1", "pc"}
+    assert (tmp_path / "l1/pc/sessions/role.jsonl").exists()
+    assert list((tmp_path / "l1/pc/workers").glob("*_pc.jsonl"))
 
 
 def test_runs_with_the_wrong_workers_or_warnings_are_invalid(tmp_path: Path) -> None:
@@ -180,7 +176,7 @@ def test_runs_with_the_wrong_workers_or_warnings_are_invalid(tmp_path: Path) -> 
                        {w: {} for w in workers})  # fmt: skip
 
     assert rx.run_problems(summary("laptop1"), plan, 0, pilot=False) == []
-    assert rx.run_problems(summary("laptop2"), plan, 0, pilot=False)  # Laptop 2 joined instead
+    assert rx.run_problems(summary("pc"), plan, 0, pilot=False)  # the PC joined instead
     assert rx.run_problems(summary("laptop1-pilot"), plan, 0, pilot=False)
     assert rx.run_problems(summary("laptop1-pilot"), plan, 0, pilot=True) == []
     assert rx.run_problems(summary("laptop1", result=None), plan, 0, pilot=False)
