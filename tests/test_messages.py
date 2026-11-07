@@ -9,7 +9,7 @@ from common import messages as m
 
 # One valid example of every message type.
 EXAMPLES: list[m.Message] = [
-    m.Hello("laptop2", 8, "7x6", 1024, "76208ebc0e2a", False, 1793600000.12, 5123.4),
+    m.Hello("pc", 8, "7x6", 1024, "76208ebc0e2a", False, 1793600000.12, 5123.4),
     m.GiveMeWork(16),
     m.Started("t17", 3, 12.004),
     m.Result("t17", "loss", 31799719, 2.541, 14.545),
@@ -19,7 +19,7 @@ EXAMPLES: list[m.Message] = [
     m.ClockReply(4, 1793600001.5, 5124.8),
     m.Error("t9", "no task with this id"),
     m.Error(None, "solver exited"),
-    m.Welcome("laptop2", "2026-11-04_V1_cable_r1", "V1"),
+    m.Welcome("pc", "2026-11-04_V1_cable_r1", "V1"),
     m.Task("t17", "4453"),
     m.Task("t0", ""),
     m.NoWork(),

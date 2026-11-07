@@ -1,6 +1,6 @@
 """Tests for the coordinator (coordinator/server.py, strategies.py, run.py).
 
-The integration tests are whole runs on this laptop: a coordinator plus two real worker
+The integration tests are whole runs on this machine: a coordinator plus two real worker
 processes, each driving a real c4solve (work plan step 16, check 1). The start positions have
 known results: the empty small boards from Tromp's table, and positions from Pons's 7x6 files.
 """
@@ -168,7 +168,7 @@ def test_whole_run_gives_the_known_result(
     assert summary.solve_seconds is not None and summary.solve_seconds > 0
     assert codes == [0, 0]  # both workers exited cleanly after run_over
 
-    # Both laptops took part, and every task sent was answered, stopped or cancelled.
+    # Both machines took part, and every task sent was answered, stopped or cancelled.
     assert all(worker["tasks_sent"] > 0 for worker in summary.workers.values())
     check_every_task_ended(summary)
     assert summary.tasks_sent == sum(w["tasks_sent"] for w in summary.workers.values())
@@ -237,7 +237,7 @@ def test_command_line(tmp_path: Path) -> None:
 
 @needs_solver("7x6")
 def test_laptop_alone(tmp_path: Path) -> None:
-    """Experiment E1: one laptop alone is V3 with one worker."""
+    """Experiment E1: one machine alone is V3 with one worker."""
     config = Config(
         run_id="e1",
         start="751321",  # Pons Begin-Hard: a win, with copies at depth 3
@@ -396,7 +396,7 @@ def test_a_silent_worker_ends_the_run(tmp_path: Path) -> None:
     coordinator = Coordinator(fake_config(tmp_path, silence_limit=1.0))
     thread, outcome = in_thread(coordinator)
     worker = FakeWorker(coordinator.port, "w1")
-    worker.join(credit=2)  # then says nothing at all, like a worker whose laptop went to sleep
+    worker.join(credit=2)  # then says nothing at all, like a worker whose machine went to sleep
     thread.join(10)
     assert not thread.is_alive()
     assert isinstance(outcome[0], CoordinatorError) and "sent nothing" in str(outcome[0])
@@ -410,21 +410,21 @@ def test_only_the_expected_workers_may_join(tmp_path: Path) -> None:
         workers=1,
         bind="tcp://127.0.0.1:0",
         timeout=30,
-        allowed_workers=("laptop2",),
+        allowed_workers=("pc",),
         log_dir=tmp_path,
     )
     coordinator = Coordinator(config)
     thread, outcome = in_thread(coordinator)
-    stranger = FakeWorker(coordinator.port, "laptop2-pilot")
-    stranger.send(fake_hello("laptop2-pilot"))
+    stranger = FakeWorker(coordinator.port, "pc-pilot")
+    stranger.send(fake_hello("pc-pilot"))
     stranger.wait_for(m.RunOver)  # turned away at once; the run waits on
     stranger.close()
-    worker = FakeWorker(coordinator.port, "laptop2")
+    worker = FakeWorker(coordinator.port, "pc")
     server = worker.serve(lambda task: "draw", credit=7)
     thread.join(30)
     assert worker.finished_cleanly(server)
     summary = outcome[0]
-    assert isinstance(summary, Summary) and list(summary.workers) == ["laptop2"]
+    assert isinstance(summary, Summary) and list(summary.workers) == ["pc"]
     worker.close()
 
 
@@ -522,7 +522,7 @@ def test_v0_gives_the_faster_laptop_the_bigger_share(tmp_path: Path) -> None:
     for name in ("fast", "slow"):
         assert summary.workers[name]["positions"] == 10 * sent[name]
 
-    # No work moved: each laptop was sent exactly the tasks dealt to it at the start, in order.
+    # No work moved: each machine was sent exactly the tasks dealt to it at the start, in order.
     speeds = {name: summary.calibration[name]["speed"] for name in ("fast", "slow")}
     dealt = weighted_split([t.task_id for t in GameTree("", 2).tasks()], speeds)
     records = read_log(log_path(config.run_id, "coordinator", tmp_path))
@@ -622,8 +622,8 @@ def test_v0_whole_run_with_real_workers(tmp_path: Path) -> None:
         if r["message"]["task_id"].startswith("c")
     ]
     assert len(calibration_sends) == 2 * 20 and max(calibration_sends) < start["mono"]
-    # The split covers every task; a laptop is sent at most its share (fewer once the result
-    # makes the rest unneeded), never a task from the other laptop's share.
+    # The split covers every task; a machine is sent at most its share (fewer once the result
+    # makes the rest unneeded), never a task from the other machine's share.
     shares = start["shares"]
     assert sum(shares.values()) == summary.tasks_at_start
     for name in ("w1", "w2"):
@@ -887,7 +887,7 @@ def test_v3_split_children_go_to_the_laptop_that_held_the_task(tmp_path: Path) -
     a, b = FakeWorker(coordinator.port, "a"), FakeWorker(coordinator.port, "b")
 
     # p4 runs until it is stopped; every other task is a draw. b is slow, so it cannot take all
-    # of p4's children before the laptop that held p4 asks again. The laptop that held p4 takes
+    # of p4's children before the machine that held p4 asks again. The machine that held p4 takes
     # its children from the front; the other one may take some from the back, so it never idles.
     def answer(task: m.Task) -> str | None:
         return None if task.task_id == "p4" else "draw"
