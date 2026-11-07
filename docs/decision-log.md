@@ -16,7 +16,7 @@ Choices that affect the measurements, with the reason and the date. The pilot ch
 | V0 calibration set and size | | Default now: `Test_L1_R2.txt`, 200 positions | |
 | Cool-down: rest time (s) | | | |
 | Cool-down: max CPU package temperature, Laptop 1 (°C) | | | |
-| Cool-down: max CPU package temperature, Laptop 2 (°C) | | | |
+| Cool-down: max CPU package temperature, PC (°C; k10temp Tctl) | | Ryzen 7000 parts idle near 45–50 °C | |
 | Wi-Fi network used | | | |
 | Freeze commit (step 27) | | | |
 
@@ -40,3 +40,18 @@ Made without the group, as the safest reasonable choice; change them if you disa
 12. **Cool-down needs a fresh reading:** the HWiNFO row must be at most 10 s old; otherwise the laptop waits. Laptop 2's checks and cool-down are in its session log (`logs/laptop2/sessions/`), not in the run's own log.
 13. **A worker gives up after 90 s without any message from the coordinator** (the coordinator sends a clock check every 10 s in every phase), so a crashed Laptop 1 never leaves Laptop 2 solving for nobody.
 14. **E3 runs only V1 and V3** at the other depth, as planned; a measured run of another strategy at that depth is refused.
+
+---
+
+## C. Moving to Linux, with a desktop PC in place of Laptop 2 (7 Nov 2026)
+
+Agreed with the group on 7 Nov 2026.
+
+1. **Laptop 2 is no longer available; a desktop PC takes its place.** AMD Ryzen 7 7700 (8 cores, 16 threads, desktop cooling). It is called `pc` everywhere: worker name, log folder (`logs/pc/` on Laptop 1), settings and docs (`pc-pilot` in pilot mode). Laptop 1 keeps the name `laptop1` and still runs the coordinator. Sections A and B above still hold, with "Laptop 2" read as "the PC". The paper must say that the second machine changed after the Phase 2 methodology was submitted.
+2. **Both machines run Linux (Omarchy, the same configuration).** Removes the operating system as a difference between the two machines. The Windows setup is in git history.
+3. **Toolchain from pacman, on both machines:** GCC 16.2.1, CMake 4.4.4, LLVM 23.1.3, uv 0.13.4. `CM_EXPECTED_GCC_VERSION` (release preset) and `required-version` (`pyproject.toml`) were changed to match; `uv.lock` is unchanged (`uv sync --locked` passes). No package updates from the freeze until the last experiment.
+4. **HWiNFO is replaced by `scripts/sensor_log.py`.** It reads Linux's own sensor files once a second: package temperature (coretemp `Package id 0` / k10temp `Tctl`), package power (RAPL energy counter), the clock of each logical CPU (`cpuinfo_avg_freq`), CPU use, and on Intel the RAPL power limits (from both the CPU's own interface and the memory-mapped one that laptop firmware often uses; the lower one holds) and thermal-throttle counts (each physical core once). Its logs are run logs (JSON lines with both clocks), so they line up with the runs by the same `wall` clock and clock checks as everything else. Differences from HWiNFO to state in the paper: the clock is the average while running (halted time does not lower it, unlike HWiNFO's "effective clock"); there are no PROCHOT or power-limit flags; the AMD machine has no power limits or throttle counts at all.
+5. **Package power needs one command per boot** (`sudo chmod a+r /sys/class/powercap/intel-rapl:0/energy_uj`), since Linux lets only root read the energy counter. The logger runs as the user and logs `null` power otherwise; it is not run as root, so no log or `.venv` file is ever owned by root.
+6. **The cool-down setting `hwinfo_max_age` is now `sensor_max_age`** (same 10 s).
+7. **The network check uses Linux `ping`** (`-c`, numeric, `LC_ALL=C`), which reports fractions of a millisecond; the Windows rule "<1ms = 0.5 ms" is gone.
+8. **The `alone` role takes `--machine`** (`laptop1` or `pc`) instead of `--laptop`.
