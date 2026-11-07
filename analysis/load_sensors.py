@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.machines import COORDINATOR, MACHINES, PEER, PEER_DIR, SENSORS_DIR
+
 SAMPLE = "sample"
 # The sample values with one number each (keep in step with scripts/sensor_log.py
 # Sensors.sample); the per-CPU lists are left out.
@@ -69,3 +71,22 @@ def latest_sample(path: Path, tail_bytes: int = 64 * 1024) -> dict:
 def newest_log(folder: Path) -> Path | None:
     """The sensor log in `folder` written to last, or None if there is none."""
     return max(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, default=None)
+
+
+def read_sensors(logs: Path) -> dict[str, list[pd.DataFrame]]:
+    """Each machine's sensor logs, read once: wall clock, package temperature, power, clock and
+    both power limits, from logs/sensors/ and logs/pc/sensors/ (the PC's copies on Laptop 1).
+    A log belongs to the machine its name ends with (scripts/sensor_log.py names it
+    "<date-time>_<machine>.jsonl"), so either machine's own logs folder can be read; a log
+    with another name belongs to the folder's usual machine."""
+    folders = {COORDINATOR: logs / SENSORS_DIR, PEER: logs / PEER_DIR / SENSORS_DIR}
+    wanted = ("wall", "package_c", "power_w", "clock_mhz", "pl1_w", "pl1_mmio_w")
+    sensors: dict[str, list[pd.DataFrame]] = {}
+    for usual, folder in folders.items():
+        for path in sorted(folder.glob("*.jsonl")):
+            if ".rewritten-" in path.name:  # an old copy set aside by collect_logs
+                continue
+            named = path.stem.rsplit("_", 1)[-1]
+            machine = named if named in MACHINES else usual
+            sensors.setdefault(machine, []).append(read_sensor_log(path, wanted))
+    return sensors

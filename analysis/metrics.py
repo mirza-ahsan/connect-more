@@ -27,6 +27,11 @@ the solve time T is the summary's `solve_seconds`.
   the calibration set before the run, against the same ratio reached over the run (each machine
   only up to the end of its last task, so time it sat idle after its share does not count).
 - Network cost: messages and bytes per run, and the clock-check round trips.
+- Sensors during the run (from each machine's sensor log, samples inside [0, T]): mean package
+  power, highest package temperature, mean clock, and the power limit that held. A machine's
+  limit at a moment is the lower of its two RAPL PL1 values (the CPU's own and the memory-mapped
+  one); `pl1_low_share` is the share of the run's samples with that limit under LOW_PL1. Laptop 1's
+  platform moves it between 76 W and 45 W (decision log C.11); the PC has no limits (NaN).
 """
 
 from itertools import pairwise
@@ -40,6 +45,8 @@ from common.machines import COORDINATOR, MACHINES, PEER
 from coordinator.board import Position
 
 WINDOW = 10.0  # seconds per window for speed over time
+LOW_PL1 = 60.0  # W: halfway between the two PL1 values Laptop 1's platform sets (45 and 76 W)
+SAMPLE_SECONDS = 1.0  # a sensor sample's power and CPU use cover the second before it
 
 
 def solve_time(run: Run) -> float | None:
@@ -222,3 +229,62 @@ def network_cost(run: Run) -> dict[str, float]:
         out[f"messages_{direction}"] = len(mine)
         out[f"bytes_{direction}"] = int(mine["bytes"].sum())
     return out
+
+
+def window_stats(frame: pd.DataFrame) -> dict[str, float]:
+    """One machine's package power, temperature, clock and power limit over the samples given
+    (NaN for a value it never logged). The limit of a sample is the lower of the PL1 values the
+    machine logs (0 or less means none is set); a sample missing one of them is left out of the
+    two limit values, so `pl1_low_share` is the share of the samples with a known limit."""
+    limits = frame[["pl1_w", "pl1_mmio_w"]].where(lambda v: v > 0)
+    limits = limits.dropna(axis="columns", how="all")  # an interface this machine does not have
+    limit = limits.dropna().min(axis=1).dropna()  # the lower limit holds (none: empty)
+    return {
+        "power_w_mean": float(frame["power_w"].mean()),
+        "package_c_max": float(frame["package_c"].max()),
+        "clock_mhz_mean": float(frame["clock_mhz"].mean()),
+        "pl1_w_mean": float(limit.mean()),
+        "pl1_low_share": float((limit < LOW_PL1).mean()),  # NaN when there is no limit
+    }
+
+
+def sensor_series(
+    run: Run, sensors: dict[str, list[pd.DataFrame]], margin: float
+) -> dict[str, pd.DataFrame]:
+    """Per machine of the run: its sensor samples from `margin` seconds before t0 to `margin`
+    seconds after the result, with `time` in seconds from t0, put on the coordinator's clock
+    through the clock checks (from the sensor logs read once by
+    analysis/load_sensors.py's `read_sensors`)."""
+    t0 = run.t0_wall
+    t = solve_time(run)
+    if t0 is None or t is None:
+        return {}
+    offsets = run.wall_offsets()
+    found = {}
+    for worker in run.hellos:
+        machine = run.machine(worker)
+        if machine != COORDINATOR and worker not in offsets:
+            continue  # no clock check from it: its samples cannot be placed on this clock
+        offset = 0.0 if machine == COORDINATOR else offsets[worker]
+        pieces = []
+        for frame in sensors.get(machine, []):  # all its logs: one may have been restarted
+            time = frame["wall"] - offset - t0
+            inside = frame[(time >= -margin) & (time <= t + margin)]
+            pieces.append(inside.assign(time=time[inside.index]))
+        joined = pd.concat(pieces) if pieces else pd.DataFrame()
+        if not joined.empty:
+            found[machine] = joined.sort_values("time")
+    return found
+
+
+def sensor_stats(run: Run, sensors: dict[str, list[pd.DataFrame]]) -> dict[str, float]:
+    """window_stats of each machine of the run over [0, T], as "<value>_<machine>" (nothing for a
+    machine without a sensor log covering the run). A sample covers the second before it, so the
+    samples used are those timed in (0, T + SAMPLE_SECONDS]."""
+    t = solve_time(run) or 0.0
+    row = {}
+    for machine, frame in sensor_series(run, sensors, margin=SAMPLE_SECONDS).items():
+        inside = frame[(frame["time"] > 0) & (frame["time"] <= t + SAMPLE_SECONDS)]
+        if not inside.empty:
+            row.update({f"{name}_{machine}": v for name, v in window_stats(inside).items()})
+    return row

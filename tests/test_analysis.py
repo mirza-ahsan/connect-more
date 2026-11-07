@@ -5,10 +5,12 @@ then the whole chain (tables and figures) on a real run of this machine with a s
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from analysis import best_fixed_split, figures, metrics, tables
 from analysis.load_runs import Run, load_run, load_runs, runs_table
+from analysis.load_sensors import read_sensors
 from scripts import run_experiment as rx
 from tests.helpers import free_port, needs_solver, write_sensor_log
 from tests.test_run_experiment import settings
@@ -160,8 +162,35 @@ def test_set_aside_sensor_copies_are_not_read(tmp_path: Path) -> None:
     folder = tmp_path / "pc/sensors"
     write_sensor_log(folder / "s.jsonl", [1.0], [50.0])
     write_sensor_log(folder / "s.rewritten-2026-11-07_10-00-00.jsonl", [1.0], [99.0])
-    (frame,) = figures.read_sensors(tmp_path)["pc"]
+    (frame,) = read_sensors(tmp_path)["pc"]
     assert frame["package_c"].tolist() == [50.0]
+    # On the PC's own logs folder its log sits in logs/sensors/: its name says whose it is.
+    write_sensor_log(tmp_path / "own/sensors/2026-11-07_15-02-35_pc.jsonl", [1.0], [60.0])
+    assert list(read_sensors(tmp_path / "own")) == ["pc"]
+
+
+def test_window_stats() -> None:
+    frame = pd.DataFrame(
+        {
+            "power_w": [70.0, 50.0, 48.0, None],
+            "package_c": [90.0, 100.0, 99.0, 98.0],
+            "clock_mhz": [3000.0, 2600.0, 2400.0, 2600.0],
+            "pl1_w": [76.0, 76.0, 76.0, 76.0],
+            "pl1_mmio_w": [76.0, 45.0, 45.0, None],  # the lower one holds
+        }
+    )
+    stats = metrics.window_stats(frame)
+    assert stats["power_w_mean"] == pytest.approx(56.0)  # missing values are left out
+    assert stats["package_c_max"] == 100.0 and stats["clock_mhz_mean"] == 2650.0
+    # The last sample misses one limit, so it is left out of both limit values.
+    assert stats["pl1_w_mean"] == pytest.approx((76 + 45 + 45) / 3)
+    assert stats["pl1_low_share"] == pytest.approx(2 / 3)
+    no_limits = metrics.window_stats(frame.assign(pl1_w=None, pl1_mmio_w=None))  # the PC
+    assert pd.isna(no_limits["pl1_w_mean"]) and pd.isna(no_limits["pl1_low_share"])
+    # A machine with only one interface uses it; 0 W means no limit is set.
+    one = metrics.window_stats(frame.assign(pl1_w=[50.0, 0.0, 70.0, 70.0], pl1_mmio_w=None))
+    assert one["pl1_w_mean"] == pytest.approx(190 / 3)
+    assert one["pl1_low_share"] == pytest.approx(1 / 3)
 
 
 @needs_solver("7x6")
@@ -180,6 +209,13 @@ def test_tables_and_figures_on_a_real_run(tmp_path: Path) -> None:
     assert tables.main(["--logs", str(logs), "--out", str(out), "--pilot"]) == 0
     summary = (out / "summary.md").read_text(encoding="utf-8")
     assert "E1" in summary and "solve_seconds_mean" in summary
+    # The sensor columns: sample i is at t0 - 5 + i with power 30 + i, and covers the second
+    # before it, so the samples timed in (0, T + 1] are used.
+    row = pd.read_csv(out / "runs.csv").iloc[0]
+    inside = [30.0 + i for i in range(15) if 0 < i - 5 <= row["solve_seconds"] + 1]
+    assert row["power_w_mean_laptop1"] == pytest.approx(sum(inside) / len(inside))
+    assert row["package_c_max_laptop1"] == 50.0 + 6 + len(inside) - 1
+    assert pd.isna(row["pl1_w_mean_laptop1"])  # this log has no power limits
     assert figures.main(["--logs", str(logs), "--out", str(out), "--pilot"]) == 0
     assert (out / f"timeline_{run.run_id}.png").stat().st_size > 0
     assert (out / f"sensors_{run.run_id}.png").stat().st_size > 0
