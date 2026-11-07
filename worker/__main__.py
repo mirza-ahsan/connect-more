@@ -1,4 +1,4 @@
-"""Starts a worker: uv run python -m worker --coordinator 192.168.2.1 --name laptop2"""
+"""Starts a worker: uv run python -m worker --coordinator 192.168.2.1 --name pc"""
 
 import argparse
 import sys
@@ -12,7 +12,7 @@ def parse_args(argv: list[str]) -> Config:
     parser = argparse.ArgumentParser(prog="python -m worker", description=__doc__)
     parser.add_argument("--coordinator", default=defaults.coordinator, help="coordinator address")
     parser.add_argument("--port", type=int, default=defaults.port)
-    parser.add_argument("--name", default=defaults.name, help="worker name, e.g. laptop2")
+    parser.add_argument("--name", default=defaults.name, help="worker name, e.g. pc")
     parser.add_argument("--solver", type=Path, default=defaults.solver, help="c4solve executable")
     parser.add_argument("--threads", type=int, help="solver threads (default: all)")
     parser.add_argument("--table-mb", type=int, help="table size (default: the solver's)")
