@@ -1,11 +1,11 @@
 """Run logs: one JSON object per line, each stamped with two clocks.
 
 - `mono` is time.perf_counter(): a steady clock for measuring durations. It never jumps, and on
-  Windows it is shared by every process on the same laptop (checked on Windows 11 with Python
-  3.12: separate processes agree to within a few milliseconds), so the coordinator's and the
-  worker's logs on Laptop 1 can be compared directly.
-- `wall` is the normal clock (seconds since 1970), and `local` the same moment as local date and
-  time, for matching against HWiNFO's sensor logs, which use local time.
+  Linux it is CLOCK_MONOTONIC, which every process on the same machine shares, so the
+  coordinator's and the worker's logs on Laptop 1 can be compared directly.
+- `wall` is the normal clock (seconds since 1970), for lining logs of the two machines up (with
+  the clock checks) and for the sensor logs of scripts/sensor_log.py, and `local` the same moment
+  as local date and time, for people reading the logs.
 
 A log file is never overwritten: opening a path that already exists fails. Raw logs are kept
 exactly as written (CLAUDE.md); anything derived from them is made by scripts in analysis/.
