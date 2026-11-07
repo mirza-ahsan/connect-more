@@ -1,53 +1,59 @@
 # Environment
 
-This file records the exact hardware, software and settings of both laptops so experiments are reproducible and the paper can report the setup accurately. Update it whenever anything changes, and never change the environment during an experiment session.
+This file records the exact hardware, software and settings of both machines so experiments are reproducible and the paper can report the setup accurately. Update it whenever anything changes, and never change the environment during an experiment session.
+
+**Since 7 Nov 2026 the experiments run on Linux, on Laptop 1 and a desktop PC.** Laptop 2 (HP EliteBook 840 G5, i5-8350U) is no longer available; the PC takes its place, and both machines run Omarchy with the same configuration. The Windows 11 setup used until then is in this file's git history. Values marked **(fill in)** must be read on that machine and written here before the pilot.
 
 ---
 
 ## 1. Hardware
 
-| | Laptop 1 | Laptop 2 |
+| | Laptop 1 (`laptop1`) | PC (`pc`) |
 |---|---|---|
-| Manufacturer / model | Dell Precision 5570 | HP EliteBook 840 G5 |
-| BIOS version | 1.42.0 | Q78 Ver. 01.31.00 |
-| CPU | Intel Core i7-12800H (12th gen, Alder Lake) | Intel Core i5-8350U (8th gen, Kaby Lake R) |
-| Core layout | 14 cores: 6 Performance (with Hyper-Threading) + 8 Efficient | 4 cores, no P/E split (Hyper-Threading enabled) |
-| Logical threads | 20 | 8 |
-| Base frequency | 2400 MHz | 1896 MHz |
-| Architecture | x86_64 | x86_64 |
-| RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | 16 GB DDR4 at 2400 MT/s |
-| GPU | NVIDIA RTX A1000 4 GB (not used in this project) | Intel UHD Graphics 620 (not used in this project) |
-| Ethernet | None built in; USB-C gigabit Ethernet adapter (model TBD) | Built-in: Intel Ethernet Connection (4) I219-LM (no USB adapter needed) |
-| Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | Intel Dual Band Wireless-AC 8265 |
-| CPU power limits (HWiNFO, idle) | PL1 static 115 W, **PL1 dynamic 40 W**, PL2 115 W | PL1 static 18 W, PL2 44 W (dynamic same) |
+| Manufacturer / model | Dell Precision 5570 | Desktop; MSI PRO B650-S WIFI motherboard (MS-7E26) |
+| BIOS version | 1.42.0 | 1.N0 |
+| CPU | Intel Core i7-12800H (12th gen, Alder Lake) | AMD Ryzen 7 7700 (Zen 4, Raphael) |
+| Core layout | 14 cores: 6 Performance (with Hyper-Threading) + 8 Efficient | 8 cores, all the same (SMT on) |
+| Logical threads | 20 | 16 |
+| Base / top frequency | 2400 MHz base | 3800 MHz base, 5300 MHz boost (AMD's figures; Linux reports a top of 5393 MHz) |
+| Architecture | x86_64 | x86_64 (also has AVX-512; not used, the build targets x86-64-v3) |
+| RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | DDR5; Linux sees 15.2 GB (part is kept for the integrated GPU). Size and speed **(fill in: `sudo dmidecode -t memory`)** |
+| GPU | NVIDIA RTX A1000 4 GB (not used in this project) | AMD Radeon integrated graphics (not used in this project) |
+| Ethernet | None built in; USB-C gigabit Ethernet adapter (model **(fill in)**) | Built in: Realtek RTL8125 2.5 GbE (`r8169` driver), `enp12s0` |
+| Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | MediaTek MT7921 (`mt7921e`), `wlp13s0` |
+| CPU power limits | Under Windows: PL1 static 115 W, PL1 dynamic 40 W, PL2 115 W. Under Linux: **(fill in from the `sensor_log_start` record: `pl1_w`, `pl2_w`, and `pl1_mmio_w`, `pl2_mmio_w`; the lower PL1 is the one that holds)** | Not shown by Linux (AMD's RAPL interface has no limits). AMD's default for a 65 W part is 88 W package power (maker figure, not measured) |
+| Cooling | Laptop (throttles under long loads) | Desktop tower cooler |
 
 ---
 
 ## 2. Operating System
 
-| | Laptop 1 | Laptop 2 |
+| | Laptop 1 | PC |
 |---|---|---|
-| OS | Windows 11 Pro | Windows 11 Pro |
-| Version | 26H2 | 25H2 |
-| OS build | 26300.9457 | 26200.9457 |
+| Distribution | Omarchy (Arch Linux based), same configuration as the PC | Omarchy 4.5.0 (Arch Linux based) |
+| Kernel | **(fill in: `uname -r`)** | 7.2.15-1-omarchy |
+| CPU frequency driver | **(fill in: `intel_pstate` expected)** | `amd-pstate-epp` |
+| Governor / energy preference | `performance` / `performance` **(check)** | `performance` / `performance` |
+| Power profile (`powerprofilesctl get`) | `performance` **(check)** | `performance` |
 
-Note: Python's `platform` module reports "Windows 10" on Windows 11. This is a known naming quirk; the OS is Windows 11. Versions 24H2, 25H2 and 26H2 share the same servicing branch.
+Both machines are rolling-release Arch systems: **do not update packages (`pacman -Syu`, `omarchy-update`) from the code freeze until the last experiment**, so the compiler and libraries stay as recorded here.
 
 ---
 
 ## 3. C++ Toolchain
 
-| Tool | Version | Source | Laptop 1 path | Laptop 2 path |
-|---|---|---|---|---|
-| GCC / G++ | 16.1.0 (MinGW-W64 x86_64-ucrt-posix-seh, Brecht Sanders, r4) | WinLibs via winget (`BrechtSanders.WinLibs.POSIX.UCRT`) | `C:\Users\ahsan\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin` | `D:\Tools\mingw64\bin` |
-| GDB | 17.2 | Bundled with WinLibs | Same `mingw64\bin` | Same `mingw64\bin` |
-| Ninja | 1.13.2 | Bundled with WinLibs | Same `mingw64\bin` | Same `mingw64\bin` |
-| CMake | 4.4.3 | Kitware via winget (`Kitware.CMake`) | `C:\Program Files\CMake\bin` | `C:\Program Files\CMake\bin` |
-| clang-format / clangd | 22.1.8 (editor tooling only; never used to compile) | LLVM via winget (`LLVM.LLVM`) | `C:\Program Files\LLVM\bin` | `C:\Program Files\LLVM\bin` |
+All tools come from the Omarchy / Arch Linux packages (pacman). Both machines must show the same versions.
 
-- WinLibs also bundles its own `cmake.exe`, but it is **not used**. Kitware CMake is in the system PATH, which Windows searches before the user PATH, so Kitware's copy takes priority. Confirm with `where.exe cmake` (Kitware's path must be listed first).
-- Laptop 2 receives a byte-identical compiler by copying the whole `mingw64` folder from Laptop 1.
-- LLVM provides clangd (code navigation) and clang-format (C++ formatting on save, rules in `.clang-format`). Both laptops must have the same version, because different clang-format versions can format the same code slightly differently. Both editors are set to use the `clangd` on PATH, not a copy they download. On Laptop 2: `winget install --id LLVM.LLVM --exact --version 22.1.8`, then `winget pin add --id LLVM.LLVM --exact`.
+| Tool | Version | Package |
+|---|---|---|
+| GCC / G++ | 16.2.1 (`16.2.1+r23+gd564253eb6c8-1`), POSIX threads | `gcc` |
+| GDB | 18.1 | `gdb` |
+| CMake | 4.4.4 | `cmake` |
+| Ninja | 1.13.2 | `ninja` |
+| clang-format / clangd | 23.1.3 (editor tooling only; never used to compile) | `clang` |
+
+- The `release` preset refuses any GCC other than 16.2.1 (`CM_EXPECTED_GCC_VERSION`).
+- clangd provides code navigation and clang-format formats C++ on save (rules in `.clang-format`). Both machines must have the same version, because different clang-format versions can format the same code slightly differently.
 
 ### Build settings
 
@@ -56,12 +62,12 @@ Note: Python's `platform` module reports "Windows 10" on Windows 11. This is a k
 | C++ standard | C++20 |
 | Compile flags (`release` preset) | `-std=c++20 -O3 -DNDEBUG -march=x86-64-v3 -mtune=generic` |
 | Warning flags | `-Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wnon-virtual-dtor -Woverloaded-virtual -Wold-style-cast -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wimplicit-fallthrough -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wlogical-op` |
-| Link flags | `-static` |
+| Link flags | `-static` (glibc and libstdc++ linked in) |
 | CMake generator | Ninja |
 
-- `-march=x86-64-v3` (AVX2 level) is supported by both CPUs, so both laptops run identically built code.
-- `-static` produces executables with no MinGW DLL dependencies; only Windows system DLLs are loaded.
-- Board representations use `uint64_t` (on Windows, `long` is 32-bit). Use the `ll` builtins (`__builtin_popcountll`, `__builtin_ctzll`) or `std::popcount` / `std::countr_zero` from `<bit>`.
+- `-march=x86-64-v3` (AVX2 level) is supported by both CPUs, so both machines run identically built code. The Ryzen's AVX-512 is deliberately not used.
+- `-static` produces executables that need no shared libraries at run time.
+- Board representations use `uint64_t`. Use `std::popcount` / `std::countr_zero` from `<bit>` or the `ll` builtins, never `long` (it is 64-bit on Linux but 32-bit on Windows; the code must not depend on it).
 
 ---
 
@@ -69,18 +75,18 @@ Note: Python's `platform` module reports "Windows 10" on Windows 11. This is a k
 
 | Item | Version |
 |---|---|
-| uv | 0.12.8 (`x86_64-pc-windows-msvc`), enforced via `[tool.uv] required-version` |
+| uv | 0.13.4 (pacman package `uv 0.13.4-1`), enforced via `[tool.uv] required-version` |
 | Project Python | 3.12.13 (uv-managed, pinned exactly in `.python-version`) |
-| System Python (Laptop 1, not used by the project) | 3.12.10 |
+| System Python (not used by the project) | 3.14.8 |
 
-The project uses uv's own Python, not the system Python. `.python-version` must contain the exact version (`3.12.13`), not just `3.12`, so both laptops get the same patch release.
+The project uses uv's own Python, not the system Python. `.python-version` must contain the exact version (`3.12.13`), not just `3.12`, so both machines get the same patch release. `uv.lock` is unchanged from the Windows setup (the same package versions).
 
 ### Pinned packages
 
 | Package | Version | Purpose |
 |---|---|---|
-| pyzmq | 26.4.0 | Messaging between laptops |
-| psutil | 7.0.0 | CPU usage, frequency, process control |
+| pyzmq | 26.4.0 | Messaging between machines |
+| psutil | 7.0.0 | CPU usage, battery check, process control |
 | py-cpuinfo | 9.0.0 | CPU model details |
 | numpy | 2.2.6 | Numerical processing |
 | pandas | 2.2.3 | Results processing |
@@ -90,89 +96,84 @@ The project uses uv's own Python, not the system Python. `.python-version` must 
 | ruff (dev) | 0.16.5 | Lint and format (config in `pyproject.toml`) |
 | pyrefly (dev) | 1.2.0 | Type checking (config in `pyproject.toml`) |
 
-Exact resolved versions are locked in `uv.lock`. On a new machine, run `uv sync`. Run everything through `uv run`.
-
-Laptop 1's system Python also has copies of ruff 0.16.5 and pyrefly 1.2.0. The project does not use them; `uv run` and the editors use the copies in `.venv`.
+Exact resolved versions are locked in `uv.lock`. On a new machine, run `uv sync --locked`. Run everything through `uv run`.
 
 ---
 
 ## 5. Supporting Tools
 
-| Tool | Laptop 1 version | Source | Purpose |
+| Tool | Version | Package | Purpose |
 |---|---|---|---|
-| Git | 2.55.0.windows.3 | winget `Git.Git` | Version control |
-| HWiNFO64 | 8.54 | winget `REALiX.HWiNFO` | Temperature, per-core clock and power logging |
-| iperf3 | 3.21 | winget `ar51an.iPerf3` | Network throughput tests |
-| Process Explorer | 17.14 | winget `Microsoft.Sysinternals.ProcessExplorer` | Per-core activity |
-| Coreinfo | 4.02 | Sysinternals download to `C:\Tools\Sysinternals` | Identifying core types |
-| PowerShell 7 | 7.6.6.0 | winget `Microsoft.PowerShell` | Default shell in Windows Terminal; setup scripts |
-| Visual Studio Code | 1.140.0 (updates itself) | winget `Microsoft.VisualStudioCode` | Editor (Laptop 2 uses VS Code only) |
-| OpenSSH Server | Windows capability `OpenSSH.Server~~~~0.0.1.0` | Windows optional feature | Remote control between laptops |
+| Git | 2.56.0 | `git` | Version control |
+| Sensor logger | this repository | `scripts/sensor_log.py` | Temperature, clock, power, CPU use and throttling, every 1000 ms (replaces HWiNFO) |
+| lm_sensors | 3.6.2 | `lm_sensors` | Checking the sensors by hand (`sensors`) |
+| iperf3 | 3.22 | `iperf3` | Network throughput tests |
+| ufw | 0.36.2 | `ufw` | Firewall |
+| NetworkManager | (Omarchy default) | `networkmanager` | Cable address (`nmcli`) |
+| power-profiles-daemon | (Omarchy default) | `power-profiles-daemon` | Power profile (`powerprofilesctl`) |
 
-### Pinned in winget (protected from `winget upgrade --all`)
+### Where the sensor values come from
 
-- `BrechtSanders.WinLibs.POSIX.UCRT`
-- `astral-sh.uv`
-- `Kitware.CMake`
-- `LLVM.LLVM`
+| Value | Laptop 1 (Intel) | PC (AMD) |
+|---|---|---|
+| CPU package temperature | coretemp `Package id 0` | k10temp `Tctl` (no offset on Ryzen 7000) |
+| Package power | RAPL `intel-rapl:0` energy counter | Same interface (`intel-rapl:0`, package-0) |
+| Clock | cpufreq `cpuinfo_avg_freq` per logical CPU | Same |
+| Power limits | RAPL `constraint_0` (PL1) / `constraint_1` (PL2) of `intel-rapl:0` and of `intel-rapl-mmio:0` | None |
+| Throttling | `thermal_throttle/*_throttle_count` (each physical core counted once) | None |
+
+The RAPL energy counter is readable only by root. Once after every boot, on both machines: `sudo chmod a+r /sys/class/powercap/intel-rapl:0/energy_uj`. Without it the logs have no power values; the logger warns at start.
 
 ---
 
 ## 6. System Settings
 
-| Setting | Laptop 1 | Laptop 2 |
+| Setting | Laptop 1 | PC |
 |---|---|---|
-| Power plan | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) | High Performance (`8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c`) |
-| Power mode (Settings) | Best performance | Best performance |
-| Manufacturer performance profile | Dell Thermal Management: Ultra Performance (`UltraPerformance`, set in BIOS / Dell Command \| Configure) | None (no maker performance tool; Windows power mode "Best performance" is the setting) |
-| Sleep on AC | Disabled | Disabled |
-| Defender exclusion | `C:\University\connect-more` | `D:\University\connect-more` (old repo path: re-add it for `D:\Projects\connect-more`) |
-| sshd service | Automatic, running | Automatic, running |
-| HWiNFO logging interval | 1000 ms (verified: rows ~1.0 s apart) | Same (copy `HWiNFO64.INI`) |
+| Power profile | `powerprofilesctl set performance` | `powerprofilesctl set performance` |
+| Manufacturer thermal profile | Dell Thermal Management: Ultra Performance (set in BIOS; check it is still set) | None |
+| Sleep / idle lock during runs | Off for the session **(fill in how: Omarchy idle settings)** | Same |
+| Time sync | systemd-timesyncd (`timedatectl`: "System clock synchronized: yes") | Same (time zone Asia/Karachi) |
+| Repository path | **(fill in)** (a fresh clone on the Linux disk, not the Windows checkout) | `/home/aztrek/projects/connect-more` |
+| Sensor logging interval | 1000 ms (`scripts/sensor_log.py`) | Same |
 
-### Firewall rules (Private profile only)
+### Firewall (ufw, both machines)
 
-| Rule | Port / protocol | Laptop 1 | Laptop 2 |
-|---|---|---|---|
-| ConnectFour Distributed Solver (TCP-5555) | TCP 5555 | ✅ | ✅ |
-| iperf3 (TCP-5201) | TCP 5201 | ✅ | ✅ |
-| Allow Ping (Private) | ICMPv4 echo request | ✅ | ✅ |
+Omarchy enables ufw and refuses incoming connections by default. Allow the two ports from the cable and Wi-Fi subnets only:
 
----
-
-### HWiNFO log format notes
-
-- Encoding: Latin-1 (for the `°C` symbol). Read with `encoding="latin-1"`.
-- Date format: `D.M.YYYY` (e.g. `3.10.2026` = 3 October 2026); time includes milliseconds.
-- The last two rows are a repeated header and a sensor-group row, so drop them when parsing.
-- Laptop 1 logs about 530 columns (P-core/E-core names). Laptop 2's column names will differ (no P/E cores), so analysis scripts should select columns by pattern, not by position.
-
-Key columns for analysis: `Core Clocks (avg)`, `Average Effective Clock`, per-core `P-core n` / `E-core n` clocks and usage, `CPU Package [°C]`, `Core Max [°C]`, `CPU Package Power [W]`, `PL1 Power Limit (Dynamic) [W]`, `Core Thermal Throttling (avg)`, `Package/Ring Thermal Throttling`, `Package/Ring Power Limit Exceeded`, `IA: PROCHOT`, `IA: Package-Level RAPL/PBM PL1`, `IA: Package-Level RAPL/PBM PL2 PL3`.
+| Rule | Command |
+|---|---|
+| Messaging and log copying, TCP 5555 | `sudo ufw allow from 192.168.2.0/24 to any port 5555 proto tcp comment connect-more` and the same for the Wi-Fi subnet (`192.168.18.0/24` at home). PC: done 7 Nov |
+| iperf3, TCP 5201 | `sudo ufw allow from 192.168.2.0/24 to any port 5201 proto tcp comment connect-more`, and the same for the Wi-Fi subnet. PC: done 7 Nov |
+| Ping | allowed by ufw's default rules |
 
 ---
 
 ## 7. Network
 
-| | Laptop 1 | Laptop 2 |
+| | Laptop 1 | PC |
 |---|---|---|
-| Wi-Fi subnet (home) | 192.168.18.0/24 | Same network |
-| Direct cable address | 192.168.2.1/24 | 192.168.2.2/24 |
-| Cable connection profile | Private (to be set when connected) | Private |
+| Wi-Fi subnet (home) | 192.168.18.0/24 | Same network (`wlp13s0`) |
+| Direct cable address | 192.168.2.1/24 (USB-C adapter) | 192.168.2.2/24 (`enp12s0`) |
 
-- The cable subnet (192.168.2.x) does not clash with the home Wi-Fi (192.168.18.x). If experiments run on another Wi-Fi network, check for a clash with `ipconfig` and switch the cable to 10.42.0.x if needed.
+- The PC's only Ethernet port normally goes to the router. **For cable runs**, plug it into Laptop 1's USB-C adapter instead. **For Wi-Fi runs**, unplug the PC's cable and connect its Wi-Fi, so both machines really talk over Wi-Fi.
+- Cable addresses with NetworkManager, once per machine: `nmcli connection add type ethernet ifname <interface> con-name c4-cable ipv4.method manual ipv4.addresses 192.168.2.x/24 ipv6.method disabled`, then `nmcli connection up c4-cable` when the cable is plugged in.
+- The cable subnet (192.168.2.x) does not clash with the home Wi-Fi (192.168.18.x). On another Wi-Fi network, check for a clash with `ip -br addr` and switch the cable to 10.42.0.x if needed.
 - Messaging port: TCP 5555.
 
 ---
 
 ## 8. Smoke Test Results
 
-| Test | Laptop 1 | Laptop 2 |
+| Test | Laptop 1 (Linux) | PC |
 |---|---|---|
-| C++20 build (`uint64_t`, builtins, `<bit>`, 4 × `std::thread`), fully static | ✅ Passed | TBD |
-| ZeroMQ REQ/REP, 1,000 messages on localhost | ✅ 80.44 µs average round trip | TBD |
-| pytest | ✅ Passed (2.07 s) | TBD |
-| Cross-laptop ZeroMQ over cable | — | — |
-| Cross-laptop ZeroMQ over Wi-Fi | — | — |
+| `release` build (GCC 16.2.1, static, Ninja), no warnings | TBD | ✅ |
+| C++ unit tests (5) and Pons verify files (6) | TBD | ✅ 11/11 (`cmake --workflow --preset release`) |
+| Small boards against Tromp (4x4, 6x4, 6x6) | TBD | ✅ 18/18 |
+| pytest | TBD | ✅ 229 passed |
+| Sensor logger reads temperature, clocks and power | TBD | ✅ (about 20 W package power at idle) |
+| Cross-machine ZeroMQ over cable | — | — |
+| Cross-machine ZeroMQ over Wi-Fi | — | — |
 | iperf3 over cable | — | — |
 | iperf3 over Wi-Fi | — | — |
 
@@ -180,26 +181,26 @@ Key columns for analysis: `Core Clocks (avg)`, `Average Effective Clock`, per-co
 
 ## 9. Experiment Session Checklist
 
-Before every experiment session, on both laptops:
+The full procedure is `docs/session-checklist.md`. Before every session, on both machines:
 
-1. Plug in the charger.
-2. Pause Windows Update.
-3. Run `w32tm /resync` while online, so both clocks match.
-4. Close all other apps.
-5. Confirm the power mode and manufacturer profile are unchanged.
-6. Note the room temperature.
+1. Laptop 1 on its charger.
+2. No package updates since the freeze.
+3. Clocks synchronised (`timedatectl`).
+4. All other apps closed.
+5. Power profile `performance`; Laptop 1's Dell profile unchanged.
+6. RAPL counter readable (the `chmod` above, after every boot).
+7. Note the room temperature.
 
 ---
 
 ## 10. Verification Commands
 
-Run on each laptop; outputs must match the tables above.
+Run on each machine; outputs must match the tables above.
 
-```powershell
-winver
+```sh
+uname -r
 gcc --version
 cmake --version
-where.exe cmake
 ninja --version
 gdb --version
 clang-format --version
@@ -208,13 +209,16 @@ uv --version
 uv run python --version
 uv pip list
 git --version
+iperf3 --version
+powerprofilesctl get
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 ```
 
 ---
 
 ## 11. Change Log
 
-| Date | Laptop | Change |
+| Date | Machine | Change |
 |---|---|---|
 | 2026-10 | Laptop 1 | Initial environment setup and smoke tests |
 | 2026-10 | Laptop 1 | Added hardware details, Dell thermal profile; pinned project Python to exact 3.12.13 |
@@ -226,3 +230,5 @@ git --version
 | 2026-10-05 | Laptop 2 | Initial setup completed (admin script run clean; user script run clean). Hardware and toolchain recorded. Power-mode, manufacturer performance profile, and cable network steps still pending manual completion. |
 | 2026-10-11 | Laptop 2 | Confirmed power mode "Best performance"; no manufacturer performance profile is available. Repo is at `D:\University\connect-more`, tools in `D:\Tools` |
 | 2026-11-06 | Laptop 2 | Repo is now at `D:\Projects\connect-more` (tools still in `D:\Tools`); the Defender exclusion still names the old path |
+| 2026-11-07 | Both | **Moved to Linux.** Laptop 2 is no longer available; a desktop PC (Ryzen 7 7700) replaces it as `pc`. Both machines run Omarchy. Toolchain now from pacman: GCC 16.2.1, CMake 4.4.4, LLVM 23.1.3, uv 0.13.4 (`CM_EXPECTED_GCC_VERSION` and `required-version` updated; `uv.lock` unchanged). HWiNFO replaced by `scripts/sensor_log.py`; firewall by ufw; cable addresses by NetworkManager |
+| 2026-11-07 | PC | Installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; all smoke tests pass |
