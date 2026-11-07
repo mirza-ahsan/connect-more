@@ -32,13 +32,13 @@ class Config:
     coordinator: str = "127.0.0.1"
     port: int = 5555
     name: str = socket.gethostname()
-    solver: Path = ROOT / "build/release/bin/c4solve_7x6.exe"
+    solver: Path = ROOT / "build/release/bin/c4solve_7x6"
     threads: int | None = None  # None: one per logical processor (the solver decides)
     table_mb: int | None = None  # None: the solver's default (CM_DEFAULT_TT_MB)
     log_dir: Path = LOGS_DIR
     # Seconds without any message from the coordinator, once welcomed, before the worker gives
     # up: the coordinator sends a clock check every 10 s in every phase, so this means it has gone
-    # (its laptop crashed or its console was closed), and the solver must not work for nobody.
+    # (its machine crashed or its console was closed), and the solver must not work for nobody.
     silence_limit: float = 90.0
 
 
