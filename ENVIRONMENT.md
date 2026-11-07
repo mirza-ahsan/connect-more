@@ -19,9 +19,9 @@ This file records the exact hardware, software and settings of both machines so 
 | Architecture | x86_64 | x86_64 (also has AVX-512; not used, the build targets x86-64-v3) |
 | RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | DDR5; Linux sees 15.2 GB (part is kept for the integrated GPU). Size and speed **(fill in: `sudo dmidecode -t memory`)** |
 | GPU | NVIDIA RTX A1000 4 GB (not used in this project) | AMD Radeon integrated graphics (not used in this project) |
-| Ethernet | None built in; USB-C gigabit Ethernet adapter (model **(fill in)**) | Built in: Realtek RTL8125 2.5 GbE (`r8169` driver), `enp12s0` |
+| Ethernet | None built in; USB-C gigabit Ethernet adapter: ASIX AX88179B (USB ID `0b95:1790`, `cdc_ncm` driver), `enp0s20f0u1u1c2` | Built in: Realtek RTL8125 2.5 GbE (`r8169` driver), `enp12s0` |
 | Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | MediaTek MT7921 (`mt7921e`), `wlp13s0` |
-| CPU power limits | Under Windows: PL1 static 115 W, PL1 dynamic 40 W, PL2 115 W. Under Linux: **(fill in from the `sensor_log_start` record: `pl1_w`, `pl2_w`, and `pl1_mmio_w`, `pl2_mmio_w`; the lower PL1 is the one that holds)** | Not shown by Linux (AMD's RAPL interface has no limits). AMD's default for a 65 W part is 88 W package power (maker figure, not measured) |
+| CPU power limits | Under Windows: PL1 static 115 W, PL1 dynamic 40 W, PL2 115 W. Under Linux (from the `sensor_log_start` record, on the charger): `intel-rapl:0` PL1 76 W, PL2 115 W; `intel-rapl-mmio:0` PL1 45 W, PL2 115 W. The lower PL1, 45 W, is the one that holds | Not shown by Linux (AMD's RAPL interface has no limits). AMD's default for a 65 W part is 88 W package power (maker figure, not measured) |
 | Cooling | Laptop (throttles under long loads) | Desktop tower cooler |
 
 ---
@@ -31,10 +31,10 @@ This file records the exact hardware, software and settings of both machines so 
 | | Laptop 1 | PC |
 |---|---|---|
 | Distribution | Omarchy (Arch Linux based), same configuration as the PC | Omarchy 4.5.0 (Arch Linux based) |
-| Kernel | **(fill in: `uname -r`)** | 7.2.15-1-omarchy |
-| CPU frequency driver | **(fill in: `intel_pstate` expected)** | `amd-pstate-epp` |
-| Governor / energy preference | `performance` / `performance` **(check)** | `performance` / `performance` |
-| Power profile (`powerprofilesctl get`) | `performance` **(check)** | `performance` |
+| Kernel | 7.2.15-1-omarchy | 7.2.15-1-omarchy |
+| CPU frequency driver | `intel_pstate` (active mode) | `amd-pstate-epp` |
+| Governor / energy preference | `powersave` / `performance` (the power profile sets only the energy preference under `intel_pstate`) | `performance` / `performance` |
+| Power profile (`powerprofilesctl get`) | `performance` (ACPI platform profile `performance`) | `performance` |
 
 Both machines are rolling-release Arch systems: **do not update packages (`pacman -Syu`, `omarchy-update`) from the code freeze until the last experiment**, so the compiler and libraries stay as recorded here.
 
@@ -134,7 +134,7 @@ The RAPL energy counter is readable only by root. Once after every boot, on both
 | Manufacturer thermal profile | Dell Thermal Management: Ultra Performance (set in BIOS; check it is still set) | None |
 | Sleep / idle lock during runs | Off for the session **(fill in how: Omarchy idle settings)** | Same |
 | Time sync | systemd-timesyncd (`timedatectl`: "System clock synchronized: yes") | Same (time zone Asia/Karachi) |
-| Repository path | **(fill in)** (a fresh clone on the Linux disk, not the Windows checkout) | `/home/aztrek/projects/connect-more` |
+| Repository path | `/home/aztrek/projects/connect-more` (a fresh clone on the Linux disk) | `/home/aztrek/projects/connect-more` |
 | Sensor logging interval | 1000 ms (`scripts/sensor_log.py`) | Same |
 
 ### Firewall (ufw, both machines)
@@ -167,11 +167,11 @@ Omarchy enables ufw and refuses incoming connections by default. Allow the two p
 
 | Test | Laptop 1 (Linux) | PC |
 |---|---|---|
-| `release` build (GCC 16.2.1, static, Ninja), no warnings | TBD | ✅ |
-| C++ unit tests (5) and Pons verify files (6) | TBD | ✅ 11/11 (`cmake --workflow --preset release`) |
-| Small boards against Tromp (4x4, 6x4, 6x6) | TBD | ✅ 18/18 |
-| pytest | TBD | ✅ 229 passed |
-| Sensor logger reads temperature, clocks and power | TBD | ✅ (about 20 W package power at idle) |
+| `release` build (GCC 16.2.1, static, Ninja), no warnings | ✅ | ✅ |
+| C++ unit tests (5) and Pons verify files (6) | ✅ 11/11 (`cmake --workflow --preset release`) | ✅ 11/11 (`cmake --workflow --preset release`) |
+| Small boards against Tromp (4x4, 6x4, 6x6) | ✅ 18/18 | ✅ 18/18 |
+| pytest | ✅ 229 passed | ✅ 229 passed |
+| Sensor logger reads temperature, clocks and power | ✅ (about 5–10 W package power and 45–46 °C at idle) | ✅ (about 20 W package power at idle) |
 | Cross-machine ZeroMQ over cable | — | — |
 | Cross-machine ZeroMQ over Wi-Fi | — | — |
 | iperf3 over cable | — | — |
@@ -232,3 +232,4 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver /sys/devices/system/cpu/
 | 2026-11-06 | Laptop 2 | Repo is now at `D:\Projects\connect-more` (tools still in `D:\Tools`); the Defender exclusion still names the old path |
 | 2026-11-07 | Both | **Moved to Linux.** Laptop 2 is no longer available; a desktop PC (Ryzen 7 7700) replaces it as `pc`. Both machines run Omarchy. Toolchain now from pacman: GCC 16.2.1, CMake 4.4.4, LLVM 23.1.3, uv 0.13.4 (`CM_EXPECTED_GCC_VERSION` and `required-version` updated; `uv.lock` unchanged). HWiNFO replaced by `scripts/sensor_log.py`; firewall by ufw; cable addresses by NetworkManager |
 | 2026-11-07 | PC | Installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; all smoke tests pass |
+| 2026-11-07 | Laptop 1 | Linux setup: installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; `c4-cable` (192.168.2.1/24 on `enp0s20f0u1u1c2`, no autoconnect), PC answers ping; recorded kernel, `intel_pstate` settings, power limits (PL1 45 W holds) and the ASIX AX88179B adapter; all smoke tests pass |
