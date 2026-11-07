@@ -5,13 +5,13 @@
 Writes PNG (300 dpi, for the paper) into the output folder:
 - solve_time.png: mean solve time per strategy, one bar group per link, with the lowest and
   highest repeat as a range (E2), from analysis/tables.py's runs;
-- timeline_<run_id>.png: per run, every solver thread of each laptop as a lane, with each task as
+- timeline_<run_id>.png: per run, every solver thread of each machine as a lane, with each task as
   a bar from its start to its end (how it ended shown by fill), so idle time is visible;
 - sensors_<run_id>.png: per run, stacked panels on one time axis: positions per second of each
-  laptop (10 s windows), CPU package temperature, and average effective clock, from each laptop's
-  HWiNFO log (logs/hwinfo/ for Laptop 1, logs/laptop2/hwinfo/ for Laptop 2), lined up with the
-  run through the clock checks. Never two y-scales on one panel.
-Colours: one fixed colour per laptop (Laptop 1 blue, Laptop 2 orange) in every figure.
+  machine (10 s windows), CPU package temperature, package power and average clock, from each
+  machine's sensor log (scripts/sensor_log.py: logs/sensors/ for Laptop 1, logs/pc/sensors/ for
+  the PC), lined up with the run through the clock checks. Never two y-scales on one panel.
+Colours: one fixed colour per machine (Laptop 1 blue, the PC orange) in every figure.
 """
 
 import argparse
@@ -25,11 +25,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from analysis import metrics
-from analysis.load_hwinfo import EFFECTIVE_CLOCK, PACKAGE_TEMP, column, read_hwinfo
 from analysis.load_runs import Run, load_runs
+from analysis.load_sensors import read_sensor_log
 from analysis.tables import OUT, per_run, unsplit_positions
+from common.machines import COORDINATOR, MACHINES, PEER, PEER_DIR, SENSORS_DIR
 
-LAPTOP_COLOURS = {"laptop1": "#2a78d6", "laptop2": "#eb6834"}  # validated categorical slots 1, 2
+MACHINE_COLOURS = dict(zip(MACHINES, ("#2a78d6", "#eb6834"), strict=True))  # categorical slots 1, 2
 LINK_COLOURS = {"cable": "#2a78d6", "wifi": "#eb6834"}
 INK, MUTED = "#2b2b2b", "#8a8a8a"
 END_HATCH = {"result": "", "stopped": "////", "cancelled": "...."}
@@ -91,7 +92,7 @@ def timeline_figure(run: Run, path: Path) -> bool:
         ax.broken_barh(
             spans,
             (lane_of[(worker, thread)] - 0.4, 0.8),
-            facecolors=LAPTOP_COLOURS.get(Run.laptop(worker), MUTED),
+            facecolors=MACHINE_COLOURS.get(Run.machine(worker), MUTED),
             hatch=END_HATCH.get(end, ""),
             edgecolor="white",
             linewidth=0.3,
@@ -100,16 +101,16 @@ def timeline_figure(run: Run, path: Path) -> bool:
     ax.text(t, len(lanes) - 0.5, " result known", fontsize=7, color=INK, va="top")
     ax.set_yticks([])
     ax.set_xlabel("Time from the first task sent (s)", color=INK, fontsize=9)
-    names = sorted({Run.laptop(w) for w, _ in lanes})
+    names = sorted({Run.machine(w) for w, _ in lanes})
     ax.set_title(
         f"{run.run_id}: one lane per solver thread ("
-        + ", ".join(f"{n}: {sum(Run.laptop(w) == n for w, _ in lanes)}" for n in names)
+        + ", ".join(f"{n}: {sum(Run.machine(w) == n for w, _ in lanes)}" for n in names)
         + "); hatched = stopped or cancelled",
         fontsize=7,
         color=INK,
     )
     for name in names:
-        ax.barh([], [], color=LAPTOP_COLOURS.get(name, MUTED), label=name)
+        ax.barh([], [], color=MACHINE_COLOURS.get(name, MUTED), label=name)
     ax.legend(frameon=False, fontsize=7, loc="upper right", bbox_to_anchor=(1.0, -0.12), ncol=2)
     _style(ax)
     fig.tight_layout()
@@ -119,8 +120,8 @@ def timeline_figure(run: Run, path: Path) -> bool:
 
 
 def sensor_series(run: Run, sensors: dict[str, list[pd.DataFrame]]) -> dict[str, pd.DataFrame]:
-    """Per laptop: time (s from t0), package temperature and effective clock during the run,
-    from that laptop's sensor logs (read once by `read_sensors`)."""
+    """Per machine: time (s from t0), package temperature, power and clock during the run, from
+    that machine's sensor logs (read once by `read_sensors`)."""
     t0 = run.t0_wall
     t = metrics.solve_time(run)
     if t0 is None or t is None:
@@ -128,13 +129,13 @@ def sensor_series(run: Run, sensors: dict[str, list[pd.DataFrame]]) -> dict[str,
     offsets = run.wall_offsets()
     found = {}
     for worker in run.hellos:
-        laptop = run.laptop(worker)
-        offset = 0.0 if laptop == "laptop1" else offsets.get(worker, 0.0)
-        for frame in sensors.get(laptop, []):
+        machine = run.machine(worker)
+        offset = 0.0 if machine == COORDINATOR else offsets.get(worker, 0.0)
+        for frame in sensors.get(machine, []):
             time = frame["wall"] - offset - t0
             inside = frame[(time >= -5) & (time <= t + 5)]
             if not inside.empty:
-                found[laptop] = inside.assign(time=time[inside.index])
+                found[machine] = inside.assign(time=time[inside.index])
                 break
     return found
 
@@ -146,19 +147,23 @@ def sensors_figure(run: Run, readings: dict[str, list[pd.DataFrame]], path: Path
         return False
     panels = [("Positions per second (millions)", None)]
     if sensors:
-        panels += [("CPU package (°C)", "package_c"), ("Effective clock (MHz)", "clock_mhz")]
+        panels += [
+            ("CPU package (°C)", "package_c"),
+            ("Package power (W)", "power_w"),
+            ("Average clock (MHz)", "clock_mhz"),
+        ]
     fig, axes = plt.subplots(len(panels), 1, figsize=(6.5, 1.9 * len(panels)), sharex=True)
     axes = [axes] if len(panels) == 1 else list(axes)
     for worker in sorted(speed["worker"].unique()):
         mine = speed[speed["worker"] == worker]
-        colour = LAPTOP_COLOURS.get(Run.laptop(worker), MUTED)
+        colour = MACHINE_COLOURS.get(Run.machine(worker), MUTED)
         axes[0].plot(mine["time"], mine["positions_per_s"] / 1e6, color=colour, linewidth=2,
-                     label=Run.laptop(worker))  # fmt: skip
+                     label=Run.machine(worker))  # fmt: skip
     for ax, (label, key) in zip(axes, panels, strict=True):
         if key is not None:
-            for laptop, frame in sensors.items():
-                ax.plot(frame["time"], frame[key], color=LAPTOP_COLOURS[laptop], linewidth=1.5,
-                        label=laptop)  # fmt: skip
+            for machine, frame in sensors.items():
+                ax.plot(frame["time"], frame[key], color=MACHINE_COLOURS[machine], linewidth=1.5,
+                        label=machine)  # fmt: skip
         ax.set_ylabel(label, color=INK, fontsize=8)
         _style(ax)
     if axes[0].get_legend_handles_labels()[0]:
@@ -172,22 +177,17 @@ def sensors_figure(run: Run, readings: dict[str, list[pd.DataFrame]], path: Path
 
 
 def read_sensors(logs: Path) -> dict[str, list[pd.DataFrame]]:
-    """Each laptop's HWiNFO logs, read once: wall clock, package temperature, effective clock."""
-    folders = {"laptop1": logs / "hwinfo", "laptop2": logs / "laptop2/hwinfo"}
-    sensors: dict[str, list[pd.DataFrame]] = {}
-    for laptop, folder in folders.items():
-        for path in sorted(folder.glob("*.[cC][sS][vV]")):
-            frame = read_hwinfo(path)
-            sensors.setdefault(laptop, []).append(
-                pd.DataFrame(
-                    {
-                        "wall": frame["wall"],
-                        "package_c": frame[column(frame, PACKAGE_TEMP)],
-                        "clock_mhz": frame[column(frame, EFFECTIVE_CLOCK)],
-                    }
-                )
-            )
-    return sensors
+    """Each machine's sensor logs, read once: wall clock, package temperature, power, clock."""
+    folders = {COORDINATOR: logs / SENSORS_DIR, PEER: logs / PEER_DIR / SENSORS_DIR}
+    wanted = ("wall", "package_c", "power_w", "clock_mhz")
+    return {
+        machine: [
+            read_sensor_log(path, wanted)
+            for path in sorted(folder.glob("*.jsonl"))
+            if ".rewritten-" not in path.name  # an old copy set aside by collect_logs
+        ]
+        for machine, folder in folders.items()
+    }
 
 
 def main(argv: list[str]) -> int:
