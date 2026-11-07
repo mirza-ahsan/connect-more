@@ -22,7 +22,7 @@ This file records the exact hardware, software and settings of both machines so 
 | Ethernet | None built in; USB-C gigabit Ethernet adapter: ASIX AX88179B (USB ID `0b95:1790`, `cdc_ncm` driver), `enp0s20f0u1u1c2` | Built in: Realtek RTL8125 2.5 GbE (`r8169` driver), `enp12s0` |
 | Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | MediaTek MT7921 (`mt7921e`), `wlp13s0` |
 | CPU power limits | Under Windows: PL1 static 115 W, PL1 dynamic 40 W, PL2 115 W. Under Linux (from the `sensor_log_start` record, on the charger): `intel-rapl:0` PL1 76 W, PL2 115 W; `intel-rapl-mmio:0` PL2 115 W and a PL1 that **moves with temperature**: 45 W read right after the long builds, 76 W at 40 °C idle (7 Nov). The lower of the two PL1 values holds at any moment, so the laptop's sustained limit changes during a run, like Windows' dynamic PL1. Both are logged every second (`pl1_w`, `pl1_mmio_w`) | Not shown by Linux (AMD's RAPL interface has no limits). AMD's default for a 65 W part is 88 W package power (maker figure, not measured) |
-| Cooling | Laptop (throttles under long loads) | Desktop tower cooler |
+| Cooling | Laptop (throttles under long loads), on a Llano V12 laptop cooler, fan at about 1800 rpm (maximum about 2800 rpm), the same in the pilot and in every measured run | Desktop tower cooler |
 
 ---
 
@@ -244,5 +244,6 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver /sys/devices/system/cpu/
 | 2026-11-07 | PC | Installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; all smoke tests pass |
 | 2026-11-07 | Laptop 1 | Linux setup: installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; `c4-cable` (192.168.2.1/24 on `enp0s20f0u1u1c2`, no autoconnect), PC answers ping; recorded kernel, `intel_pstate` settings, power limits (PL1 45 W holds) and the ASIX AX88179B adapter; all smoke tests pass |
 | 2026-11-07 | Laptop 1 | Correction to the Laptop 1 row above: "PL1 45 W holds" is wrong. The `intel-rapl-mmio:0` PL1 moves with temperature (45 W hot, 76 W at idle); it is left as the platform sets it and logged every second (decision log C.11) |
+| 2026-11-07 | Both | Measured session 15:45–18:24 at commit `6320703` (pilot 15:05–15:40): Laptop 1 on its Llano V12 cooler at the pilot's fan speed throughout; room 29 °C at the start, 25 °C at the end. Logs on both machines: Laptop 1's `logs/` (with the PC's copied into `logs/pc/`), the PC's `logs/`, and a checksummed copy of Laptop 1's logs on the PC in `~/connect-more-backup/laptop1/pc/` |
 | 2026-11-07 | Both | `performance` governor on both machines (Laptop 1: set after every boot). Recorded the PC's memory (1 × 16 GB, single channel, 4800 MT/s), the stay-awake steps, Dell's thermal profile under Linux, Laptop 1's cable ping; one per-boot list in section 9 |
 | 2026-11-07 | Both | Network smoke tests from Laptop 1 to the PC over the cable and Wi-Fi (Wi-Fi run with `c4-cable` down on Laptop 1; its route to the PC went over Wi-Fi); results in section 8, logs `logs/network/2026-11-07_14-56-07_cable.jsonl` and `2026-11-07_14-57-57_wifi.jsonl` |

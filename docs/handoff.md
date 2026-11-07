@@ -1,8 +1,39 @@
 # Handoff: where the code stands, and what is left
 
-Updated in session 3 on 7 Nov 2026 (the move to Linux, section 0). Sections 1–5 are from the end of build session 2 on 6 Nov 2026, at commit `84fd1ea`; read "Laptop 2" there as "the PC". Read this with `CLAUDE.md`, `docs/workplan.md` (the 40-step plan), `docs/protocol.md`, `docs/decision-log.md` and `docs/session-checklist.md`. **Phase 3 deadline: Sun 8 Nov 2026, 23:55.**
+Updated at the end of session 3 on 7 Nov 2026. Section 00 is the experiments; section 0 the move to Linux. Sections 1–5 are from the end of build session 2 on 6 Nov 2026, at commit `84fd1ea`; read "Laptop 2" there as "the PC". Read this with `CLAUDE.md`, `docs/workplan.md` (the 40-step plan), `docs/protocol.md`, `docs/decision-log.md` and `docs/session-checklist.md`. **Phase 3 deadline: Sun 8 Nov 2026, 23:55.**
 
-**All code steps are done** (1–24 and 33–36), and ported to Linux. What is left needs people and both machines: steps 25–32 (tests on both machines, pilot, freeze, experiments) and 37–39 (paper, Turnitin, submit).
+**All code steps and all experiments are done** (steps 1–36). What is left is the paper: steps 37–39 (paper, Turnitin, submit).
+
+---
+
+## 00. The experiments (7 Nov 2026)
+
+Pilot 15:05–15:40, freeze at `6320703` (`docs/decision-log.md` section A), measured session 15:45–18:24. Session notes: `logs/sessions/2026-11-07_notes.md` on Laptop 1.
+
+- **36 measured runs, all valid, all "win":** E1 3 + 3 (each machine alone, V3), E2 24 (V0–V3 × cable/Wi-Fi × 3 rounds), E3 6 (V1, V3 at depth 4). Nothing was dropped or redone (decision log C.13–C.16).
+- **Unsplit count:** `c4solve --single ""` on Laptop 1: win, 1,049,291,061 positions, 75.3 s on one thread (`2026-11-07_18-17-22_E1_unsplit`).
+- **Where the logs are:** Laptop 1 `logs/` (the PC's copied into `logs/pc/`); the PC `logs/`; a checksummed copy of Laptop 1's logs on the PC in `~/connect-more-backup/laptop1/pc/`. There is no USB backup yet.
+- **Tables and figures:** `uv run python -m analysis.tables` and `uv run python -m analysis.figures` (on the PC: add `--logs ~/connect-more-backup/laptop1/pc`); output in `analysis/out/` (36 runs, 73 figures), the same numbers on both machines.
+
+**Main results (means of 3 runs, solve time in s):**
+
+| | Cable | Wi-Fi |
+|---|---|---|
+| E1 Laptop 1 alone / the PC alone | 149 (123–200) / 153 (153–155) | |
+| E2 V0 | 137 | 118 |
+| E2 V1 | 124 | 131 |
+| E2 V2 | 84.7 | 76.7 |
+| E2 V3 | 73.9 | 66.5 |
+| E3 V1 / V3 (depth 4) | 261 / 140 | |
+
+**Points the paper must make:**
+1. **Search overhead dominates.** Every split run searched about 16–68 times the positions of the unsplit single-thread search (`extra_vs_unsplit`), and the unsplit search (75.3 s, one thread) is about as fast as the best two-machine runs (V3, 66–74 s). Splitting the tree into independent tasks loses most of alpha-beta's pruning; V2/V3 win much of it back by cancelling unneeded tasks and stopping and splitting long ones. The speedups in the tables (V3 about 2×) are against the same split search on one machine (E1), not against the best sequential search: say both.
+2. **Laptop 1's power limit moves** (decision log C.11). Its E1 repeat 3 ran at 45 W instead of 76 W (199.9 s against about 123 s), which raises the E1 mean and lowers the speedups; report all three repeats.
+3. **Cable against Wi-Fi is within the noise.** A clock-check round trip takes about 1–2 ms on the cable and 2–4 ms on Wi-Fi (median per run), against runs of 60–260 s; the differences between the links come from Laptop 1's power state and the time of each block, not from the network.
+4. **The PC alone is slower than Laptop 1 alone** (153 s against about 123 s in Laptop 1's two faster repeats), likely because of its 16 threads against 20 and its single-channel memory (decision log C.10).
+5. **Depth 4 makes 2,401 tasks instead of 343** and doubles V1's time; V3 at depth 4 is close to V1 at depth 3.
+
+**What is left:** the paper (steps 37–39): update the Introduction and Methodology from Phase 2 for the PC and Linux, write the rest from `analysis/out/` and these notes, Turnitin under 10%, submit. A USB backup of `logs/` from both machines when a drive is at hand.
 
 ---
 
