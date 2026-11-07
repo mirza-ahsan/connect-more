@@ -8,17 +8,17 @@ Choices that affect the measurements, with the reason and the date. The pilot ch
 
 | Choice | Value | Why | Date |
 |---|---|---|---|
-| Start position (move string) | | Laptop 1 alone should need a few minutes | |
-| Its known result (win / draw / loss) | | From Pons's solver; confirmed by every E1 run | |
-| Split depth for E1 and E2 (3 or 4) | | | |
-| The other depth, for E3 | | | |
-| V2/V3 time limit (`split_after`, s) | | | |
-| V0 calibration set and size | | Default now: `Test_L1_R2.txt`, 200 positions | |
-| Cool-down: rest time (s) | | | |
-| Cool-down: max CPU package temperature, Laptop 1 (°C) | | | |
-| Cool-down: max CPU package temperature, PC (°C; k10temp Tctl) | | Ryzen 7000 parts idle near 45–50 °C | |
-| Wi-Fi network used | | | |
-| Freeze commit (step 27) | | | |
+| Start position (move string) | `""` (the empty board) | Laptop 1 alone (V3, depth 3) took 116.8 s; every shorter candidate (`444444` to `4`) took 0.4–27 s, so none reached the 180–480 s aim, and the group chose the empty board | 2026-11-07 |
+| Its known result (win / draw / loss) | win | The known first-player win; all 5 pilot runs from it (Laptop 1 alone, and V1 depth 3 and 4, V0, V3 together) gave win | 2026-11-07 |
+| Split depth for E1 and E2 (3 or 4) | 3 | 343 tasks; pilot V1 took 114.5 s at depth 3 and 244.7 s at depth 4, so depth 3 keeps the 30 two-machine runs short | 2026-11-07 |
+| The other depth, for E3 | 4 | Pilot V1 at depth 4 (2,401 tasks) was correct and valid, 244.7 s | 2026-11-07 |
+| V2/V3 time limit (`split_after`, s) | 40 | About the 95th percentile (41.6 s) of the 265 answered task times in pilot V1 depth 3; pilot V3 with it: 84.5 s, 3 tasks split, 19.2 G positions = 0.57 × V1's 33.7 G | 2026-11-07 |
+| V0 calibration set and size | `Test_L1_R2.txt`, 200 positions | Calibration took 0.73 s (Laptop 1) and 0.86 s (PC), under 1% of pilot V0's 155.2 s solve | 2026-11-07 |
+| Cool-down: rest time (s) | 60 | 60 s after a pilot run, Laptop 1 was at 42–46 °C (peaks 100 °C, idle 37–40 °C) and the PC at 45.1–46.6 °C (idle about 45 °C) | 2026-11-07 |
+| Cool-down: max CPU package temperature, Laptop 1 (°C) | 51 | Its highest reading 60 s after a pilot run (46 °C) + 5 | 2026-11-07 |
+| Cool-down: max CPU package temperature, PC (°C; k10temp Tctl) | 52 | Its highest reading 60 s after a pilot run (46.6 °C) + 5, rounded | 2026-11-07 |
+| Wi-Fi network used | StormFiber-07B6-5G (home, 192.168.18.0/24) | The home network both machines use; network check on 7 Nov: ping median 4.96 ms, iperf3 264 / 243 Mbit/s | 2026-11-07 |
+| Freeze commit (step 27) | The commit that adds these values (titled "scripts: pilot choices for the measured runs") | Code and settings frozen after the pilot | 2026-11-07 |
 
 ---
 
