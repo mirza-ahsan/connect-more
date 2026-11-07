@@ -5,16 +5,16 @@ and combining answers is the same for every strategy (coordinator/server.py).
 
 Implemented so far:
 - V0, fixed split by measured speed: after calibration (coordinator/calibration.py), the tasks are
-  dealt out once, in the tree's order, in proportion to the laptops' speeds. Each laptop then
-  works only through its own share; no work moves between laptops.
+  dealt out once, in the tree's order, in proportion to the machines' speeds. Each machine then
+  works only through its own share; no work moves between machines.
 - V1, "ask for more": one shared pile in a fixed order; whichever worker has room gets the next
-  task. A fast laptop asks more often, so it gets more tasks, without its speed being measured.
+  task. A fast machine asks more often, so it gets more tasks, without its speed being measured.
 - V2: V1, plus two things the coordinator does when a strategy asks for them (the flags below):
   a task that runs longer than the time limit is stopped and split into its children one move
-  deeper, which go to the front of the shared pile so either laptop can take them at once; and
+  deeper, which go to the front of the shared pile so either machine can take them at once; and
   tasks already sent whose answer can no longer matter are cancelled.
 - V3: V2, plus sharing solved results and keeping related tasks together (`SharingPile`). With
-  one worker, it is also the "laptop alone" reference (experiment E1).
+  one worker, it is also the "machine alone" reference (experiment E1).
 
 All of them skip tasks that are no longer needed before sending them. That alone is not
 "cancelling": only V2 and V3 cancel a task that was already sent.
@@ -149,14 +149,14 @@ class SplittingPile(SharedPile):
 class SharingPile(Strategy):
     """V3: V2, plus results shared by the coordinator (`shares_results`: copies of a position
     being solved wait for its answer, and known positions are answered from memory), plus related
-    tasks kept on one laptop, so that its transposition table, which already holds positions
+    tasks kept on one machine, so that its transposition table, which already holds positions
     near them, can be reused.
 
     Related tasks are tasks with the same parent position. The pile is kept in groups of such
     siblings, in the tree's order. A worker works through its own queue: a whole group taken
     from the pile, and the children of any task it held that was split, which go to the front of
     its own queue. When its queue is empty it takes the next group; when no group is left, it
-    takes a task from the back of the longest queue of another worker, so that no laptop sits
+    takes a task from the back of the longest queue of another worker, so that no machine sits
     idle while work is waiting. Tasks that come back unanswered go to the front of the pile, as a
     group of their own."""
 

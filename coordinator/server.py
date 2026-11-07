@@ -26,10 +26,10 @@ A run that cannot be measured properly fails instead of waiting: a worker that r
 of its own, cannot be reached, or sends nothing for SILENCE_LIMIT seconds (it sends progress
 every second while working) ends the run with CoordinatorError.
 
-Clocks: the solve time runs from the first task sent until the result is known, on this laptop's
+Clocks: the solve time runs from the first task sent until the result is known, on this machine's
 steady clock. Each worker is sent `clock_check` when it joins, every CLOCK_EVERY seconds and at
 the end; the round trips (network delay) and the worker's clock readings go into the log, so both
-laptops' logs can be lined up afterwards.
+machines' logs can be lined up afterwards.
 """
 
 import time
@@ -68,7 +68,7 @@ class Config:
     split_after: float = 60.0  # V2, V3: a task running longer than this is split (pilot)
     calibration: tuple[CalibrationPosition, ...] = ()  # for strategies that need it (V0)
     # The names of the workers that may join (empty: any name). Any other worker is turned away
-    # when it says hello, so a wrong laptop (or one in pilot mode) never takes part in a run.
+    # when it says hello, so a wrong machine (or one in pilot mode) never takes part in a run.
     allowed_workers: tuple[str, ...] = ()
     log_dir: Path = LOGS_DIR
 
@@ -146,7 +146,7 @@ class Coordinator:
         if self.strategy.needs_calibration:
             if not config.calibration:
                 raise ValueError(f"{config.strategy} needs a calibration set")
-            # Checked now, not when both laptops have joined: a set for another board size
+            # Checked now, not when both machines have joined: a set for another board size
             # would otherwise only show up as solver errors during calibration.
             for position in config.calibration:
                 try:
@@ -414,7 +414,7 @@ class Coordinator:
 
     def _check_settings(self, hello: m.Hello) -> None:
         """Warns if this worker's solver differs from the first one's in a way that matters for
-        comparing the laptops (CLAUDE.md: same code, same table size on both)."""
+        comparing the machines (CLAUDE.md: same code, same table size on both)."""
         problems = []
         if hello.dirty:
             problems.append("built with uncommitted changes")
