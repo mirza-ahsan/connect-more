@@ -1,8 +1,32 @@
 # Handoff: where the code stands, and what is left
 
-Updated at the end of build session 2 on 6 Nov 2026, at commit `84fd1ea` (pushed to `origin/main`). Read this with `CLAUDE.md`, `docs/workplan.md` (the 40-step plan), `docs/protocol.md`, `docs/decision-log.md` and `docs/session-checklist.md`. **Phase 3 deadline: Sun 8 Nov 2026, 23:55.**
+Updated in session 3 on 7 Nov 2026 (the move to Linux, section 0). Sections 1–5 are from the end of build session 2 on 6 Nov 2026, at commit `84fd1ea`; read "Laptop 2" there as "the PC". Read this with `CLAUDE.md`, `docs/workplan.md` (the 40-step plan), `docs/protocol.md`, `docs/decision-log.md` and `docs/session-checklist.md`. **Phase 3 deadline: Sun 8 Nov 2026, 23:55.**
 
-**All code steps are done** (1–24 and 33–36). What is left needs people and both laptops: steps 25–32 (tests on both laptops, pilot, freeze, experiments) and 37–39 (paper, Turnitin, submit).
+**All code steps are done** (1–24 and 33–36), and ported to Linux. What is left needs people and both machines: steps 25–32 (tests on both machines, pilot, freeze, experiments) and 37–39 (paper, Turnitin, submit).
+
+---
+
+## 0. Session 3 (7 Nov 2026): Linux, and a desktop PC in place of Laptop 2
+
+Laptop 2 is no longer available. A desktop PC (AMD Ryzen 7 7700, 8 cores / 16 threads) takes its place, and both machines now run Omarchy Linux with the same configuration. Decisions: `docs/decision-log.md`, section C. Machine details: `ENVIRONMENT.md`.
+
+What changed in the code (not yet committed):
+- **Names:** `laptop2` is now `pc` everywhere (worker name, `logs/pc/`, settings, tests, docs); "Laptop 2" in prose is "the PC". The `alone` role takes `--machine` (was `--laptop`); the machine names and their log folders are in `common/machines.py` (`MACHINES`, `COORDINATOR`, `PEER`, `PEER_DIR`, `SENSORS_DIR`).
+- **Build:** GCC 16.2.1 is the locked compiler (`CMakePresets.json`, `CMakeLists.txt`); the Windows parts of `CMakeLists.txt` and `c4solve.cpp` are gone; binaries have no `.exe`.
+- **Python:** uv 0.13.4 is required (`pyproject.toml`; `uv.lock` unchanged). The worker's and the tests' solver paths have no `.exe`.
+- **Sensors:** HWiNFO is replaced by `scripts/sensor_log.py` (writes `logs/sensors/*.jsonl`) and `analysis/load_sensors.py`; `analysis/load_hwinfo.py` and its test are deleted. The cool-down reads the newest sensor log (`sensor_max_age` in `scripts/experiment.toml`); the figures add a package-power panel.
+- **Network check:** Linux `ping`.
+- **Editors and settings:** VS Code points at `.venv/bin/python`; `.claude/settings.json` blocks pacman/yay/paru and `uv self update` instead of winget.
+
+Checked on the PC (setup done, firewall rules in): `cmake --workflow --preset release` (11/11) and `small-boards` (18/18) with Ninja, no warnings; 229 Python tests, ruff and pyrefly; a real sensor log with temperature, clocks and power. Not checked yet: anything on Laptop 1 under Linux, and the two machines together.
+
+**Next, on both machines:**
+1. Install the missing tools: `sudo pacman -S ninja iperf3`, then record their versions in `ENVIRONMENT.md`.
+2. `git config core.hooksPath .githooks` (once per clone).
+3. `uv sync --locked`; `cmake --workflow --preset release`; `cmake --workflow --preset small-boards`; `uv run pytest`. All must pass.
+4. Firewall, cable address, power profile and the RAPL `chmod`: `ENVIRONMENT.md` sections 5–7.
+5. Fill in the **(fill in)** values of `ENVIRONMENT.md` on Laptop 1 (kernel, power limits from its first sensor log, repository path).
+6. Then section 3 below from step 2 (pilot), with `docs/session-checklist.md`.
 
 ---
 
@@ -46,7 +70,7 @@ Made in session 2, without the user, as the safest reasonable choice: all are li
 
 ## 3. What is left (people and both laptops)
 
-1. **Laptop 2 setup (step 25):** pull; `cmake --workflow --preset release`; `cmake --workflow --preset small-boards`; `uv sync`; `uv run pytest` (all must pass); run HWiNFO logging into `logs\hwinfo\`.
+1. **Machine setup (step 25):** see section 0, "Next, on both machines"; then start the sensor log (`uv run python -m scripts.sensor_log --machine <name>`).
 2. **Both laptops together:** one pilot run over the cable and one over Wi-Fi (see the pilot commands in the checklist; use `--pilot`).
 3. **Pilot (step 26):** choose the start position (Laptop 1 alone a few minutes), the depth, `split_after`, the V0 calibration set, and the cool-down rule; write them in `scripts/experiment.toml` and `docs/decision-log.md`. A local trial in session 2 showed that a very short `split_after` (3 s) on the empty board makes V3 lose most of its work in stopped tasks (about 50 times the positions of the unsplit search): choose it with care. That trial ran next to the test suite and is not a result.
 4. **Freeze (step 27):** commit, write the freeze commit in the decision log, then rebuild `release` on both laptops **after** that commit (the runner refuses a solver built from another commit or with uncommitted changes).
@@ -61,14 +85,16 @@ Made in session 2, without the user, as the safest reasonable choice: all are li
 After every step: the `simplify` skill (reuse, simplification, efficiency, altitude), then an independent read-only bug review, fix, rerun every check, commit, push.
 
 **Pitfalls:**
-- **Line endings:** `Path.write_text` on Windows writes `\r\n`; use `write_bytes` or the Edit tool; check for `\r` before committing.
+- **Line endings:** still check for `\r` before committing (files written on Windows earlier, or by a Windows editor).
+- **Arch is rolling:** a `pacman -Syu` changes GCC and every check against `ENVIRONMENT.md`; do not update between the freeze and the last run.
+- **zsh does not split words** in an unquoted `$files`; pass file lists with `xargs`.
 - `python -I` ignores `PYTHONPATH`; scratch scripts need `PYTHONPATH=.`.
 - Long inline heredocs and backslashes in heredocs get mangled in Git Bash: write edit scripts to a scratch file, or use the Edit tool.
 - Test helper threads must be daemon threads; close fake ZeroMQ sockets with `context.destroy(linger=0)`.
 - Timing tests must check behaviour, not exact counts; they fail when the CPU is busy (do not run long solver jobs next to `pytest`).
 - Default arguments are bound at import: pass module constants explicitly where tests monkeypatch them.
 - The release `c4solve` prints `dirty true` until changes are committed and rebuilt.
-- Background `sh` jobs on Windows can outlive their task; stop the process tree of the shell itself.
+- Background shell jobs can outlive their task; stop the process tree of the shell itself.
 
 ---
 
