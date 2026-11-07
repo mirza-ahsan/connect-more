@@ -1,26 +1,26 @@
-"""Measures a network link between the two laptops (methodology: "Network measurements"; RQ4).
+"""Measures a network link between the two machines (methodology: "Network measurements"; RQ4).
 
-Run on Laptop 1 at the start of every session, once per link, while Laptop 2 runs its worker role
+Run on Laptop 1 at the start of every session, once per link, while the PC runs its worker role
 (scripts/run_experiment.py) or `uv run python -m scripts.collect_logs serve`; either one answers
 the echo requests and runs `iperf3 -s` if iperf3 is installed:
     uv run python -m scripts.network_check --link cable
-(--peer gives Laptop 2's address; by default it comes from scripts/experiment.toml.)
+(--peer gives the PC's address; by default it comes from scripts/experiment.toml.)
 
 It records, in logs/network/<date-time>_<link>.jsonl:
-- ping: the round-trip times `ping` reports (Windows gives whole milliseconds; "<1ms" is kept
-  as 0.5 here, and its raw output is logged);
+- ping: the round-trip times Linux `ping` reports, in milliseconds (its raw output is logged);
 - the round trip of one short message through ZeroMQ on the messaging port (TCP 5555), the same
   library and port the experiments use, with a message the size of a `task`; every sample is kept.
-  It is a plain request and reply (REQ/REP, answered by a thread of Laptop 2's worker role), so
+  It is a plain request and reply (REQ/REP, answered by a thread of the PC's worker role), so
   it is the network and library part of a message's cost: a lower bound, without the decoding
   and handling a real message gets on each side;
 - ZeroMQ transfer speed: 1 MiB messages echoed back, counted in both directions;
-- iperf3 (TCP 5201, both directions), only if iperf3 is installed on this laptop; otherwise
+- iperf3 (TCP 5201, both directions), only if iperf3 is installed on this machine; otherwise
   "not installed" is recorded. Nothing is installed by this script.
 """
 
 import argparse
 import json
+import os
 import re
 import shutil
 import statistics
@@ -32,6 +32,7 @@ from pathlib import Path
 import zmq
 
 from common import messages as m
+from common.machines import PEER
 from common.runlog import LOGS_DIR, RunLog, log_path, stamp
 from scripts.helpers import PORT, build_info, load_settings, requester
 
@@ -47,31 +48,23 @@ SAMPLE = m.encode(m.Task("p" + "4" * 20, "4" * 20))
 
 
 def ping(peer: str, count: int) -> dict:
-    """Runs Windows `ping -n count peer`; keeps its output and the times it reports, in ms.
-    Replies are the lines with "TTL=", whatever the language of Windows; a reply whose time
-    cannot be read is counted as unparsed, not as lost."""
+    """Runs Linux `ping -c count -n peer` (numeric output, C locale); keeps its output and the
+    round-trip time of each reply ("time=0.123 ms"), in ms. Duplicate replies ("DUP!") are left
+    out, so they count neither as replies nor as times."""
     try:
         done = subprocess.run(
-            ["ping", "-n", str(count), peer],
+            ["ping", "-c", str(count), "-n", peer],
             capture_output=True,
-            encoding="oem",
+            encoding="utf-8",
             errors="replace",
             timeout=count * 5 + 30,
+            env={**os.environ, "LC_ALL": "C"},
         )
-    except subprocess.TimeoutExpired as e:
-        return {"output": str(e), "times_ms": [], **summary([]), "lost": None, "unparsed": None}
-    replies = [line for line in done.stdout.splitlines() if "TTL=" in line.upper()]
-    times = []
-    for line in replies:
-        if found := re.search(r"([=<])\s*(\d+)\s*ms", line):
-            times.append(0.5 if found.group(1) == "<" else float(found.group(2)))
-    return {
-        "output": done.stdout,
-        "times_ms": times,
-        **summary(times),
-        "lost": count - len(replies),
-        "unparsed": len(replies) - len(times),
-    }
+    except (subprocess.TimeoutExpired, OSError) as e:  # too slow, or no ping installed
+        return {"output": str(e), "times_ms": [], **summary([]), "lost": None}
+    replies = [line for line in done.stdout.splitlines() if "DUP!" not in line]
+    times = [float(found[1]) for line in replies if (found := re.search(r"time=([\d.]+) ms", line))]
+    return {"output": done.stdout, "times_ms": times, **summary(times), "lost": count - len(times)}
 
 
 def summary(values: list[float]) -> dict[str, float | None]:
@@ -124,7 +117,7 @@ def zmq_transfer(endpoint: str, size: int, count: int) -> dict[str, float]:
 
 
 def iperf3(peer: str, seconds: int = 5) -> dict:
-    """iperf3 in both directions (this laptop sending, then receiving), if it is installed:
+    """iperf3 in both directions (this machine sending, then receiving), if it is installed:
     status, Mbit/s for each direction that worked, and iperf3's own reports (or errors)."""
     program = shutil.which("iperf3")
     if program is None:
@@ -148,7 +141,7 @@ def iperf3(peer: str, seconds: int = 5) -> dict:
             mbit_s[direction] = report["end"]["sum_received"]["bits_per_second"] / 1e6
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             reports[direction] = {"error": f"{e}", "output": done.stdout + done.stderr}
-    status = "ok" if len(mbit_s) == 2 else "failed (is Laptop 2's server running?)"
+    status = "ok" if len(mbit_s) == 2 else "failed (is the PC's server running?)"
     return {"status": status, "mbit_s": mbit_s, "reports": reports}
 
 
@@ -167,7 +160,7 @@ def measure(peer: str, link: str, port: int, log_dir: Path) -> int:
             transfer = zmq_transfer(endpoint, BULK_BYTES, BULK_COUNT)
         except (zmq.Again, RuntimeError) as e:
             log.write("zmq_failed", error=f"{type(e).__name__}: {e}")
-            print(f"  ZeroMQ: no echo from {endpoint} (is Laptop 2's server running?)")
+            print(f"  ZeroMQ: no echo from {endpoint} (is the PC's server running?)")
             return 1
         stats = summary(trips)
         log.write("zmq_round_trips", seconds=trips, message_bytes=len(SAMPLE), **stats)
@@ -192,13 +185,13 @@ def main(argv: list[str]) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--link", required=True, choices=["cable", "wifi", "local"])
-    parser.add_argument("--peer", help="Laptop 2's address (default: from the settings)")
+    parser.add_argument("--peer", help="The PC's address (default: from the settings)")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--log-dir", type=Path, default=LOGS_DIR)
     args = parser.parse_args(argv)
-    peer = args.peer or load_settings()["network"]["laptop2"].get(args.link)
+    peer = args.peer or load_settings()["network"][PEER].get(args.link)
     if not peer:
-        parser.error(f"no address for Laptop 2 on {args.link}: give --peer")
+        parser.error(f"no address for the PC on {args.link}: give --peer")
     return measure(peer, args.link, args.port, args.log_dir)
 
 
