@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # small-boards preset.
 SOLVERS = {
     "7x6": WorkerConfig().solver,
-    **{b: ROOT / f"build/small-boards/bin/c4solve_{b}.exe" for b in ("4x4", "6x4", "6x6")},
+    **{b: ROOT / f"build/small-boards/bin/c4solve_{b}" for b in ("4x4", "6x4", "6x6")},
 }
 
 
@@ -36,7 +36,7 @@ def start_worker(
     table_mb: int = 16,
     extra: tuple[str, ...] = (),
 ) -> subprocess.Popen[str]:
-    """A worker process (python -m worker) connecting to a coordinator on this laptop."""
+    """A worker process (python -m worker) connecting to a coordinator on this machine."""
     args = [
         sys.executable,
         "-m",
@@ -82,7 +82,22 @@ def fake_hello(name: str, board: str = "7x6", threads: int = 1) -> Hello:
 
 
 def free_port() -> int:
-    """A TCP port that is free on this laptop right now."""
+    """A TCP port that is free on this machine right now."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def write_sensor_log(
+    path: Path, walls: list[float], temperatures: list[float | None], partial: str = ""
+) -> Path:
+    """A sensor log as scripts/sensor_log.py writes it (a start record, then one sample per wall
+    time), ending in `partial`, a line still being written."""
+    records: list[dict] = [{"mono": 0.0, "wall": 0.0, "local": "", "event": "sensor_log_start"}]
+    for i, (wall, temperature) in enumerate(zip(walls, temperatures, strict=True)):
+        values = {"package_c": temperature, "power_w": 30.0 + i, "clock_mhz": 4000.0}
+        records.append({"mono": float(i), "wall": wall, "local": "", "event": "sample", **values})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(json.dumps(record, separators=(",", ":")) + "\n" for record in records)
+    path.write_text(text + partial, encoding="utf-8")
+    return path
