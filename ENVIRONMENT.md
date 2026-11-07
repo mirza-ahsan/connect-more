@@ -17,7 +17,7 @@ This file records the exact hardware, software and settings of both machines so 
 | Logical threads | 20 | 16 |
 | Base / top frequency | 2400 MHz base | 3800 MHz base, 5300 MHz boost (AMD's figures; Linux reports a top of 5393 MHz) |
 | Architecture | x86_64 | x86_64 (also has AVX-512; not used, the build targets x86-64-v3) |
-| RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | DDR5; Linux sees 15.2 GB (part is kept for the integrated GPU). Size and speed **(fill in: `sudo dmidecode -t memory`)** |
+| RAM | 32 GB DDR5 (2 × 16 GB) at 4800 MT/s | 1 × 16 GB DDR5, A-DATA XPG AX5U6000C3016G in slot DIMMB2 (from SMBIOS), single channel, at 4800 MT/s (rated 6000 MT/s with EXPO, which is off). Linux sees 15.2 GB (part is kept for the integrated GPU). Laptop 1 has two channels, so the PC has about half its memory bandwidth |
 | GPU | NVIDIA RTX A1000 4 GB (not used in this project) | AMD Radeon integrated graphics (not used in this project) |
 | Ethernet | None built in; USB-C gigabit Ethernet adapter: ASIX AX88179B (USB ID `0b95:1790`, `cdc_ncm` driver), `enp0s20f0u1u1c2` | Built in: Realtek RTL8125 2.5 GbE (`r8169` driver), `enp12s0` |
 | Wi-Fi | Intel Wi-Fi 6E AX211 160 MHz | MediaTek MT7921 (`mt7921e`), `wlp13s0` |
@@ -33,7 +33,7 @@ This file records the exact hardware, software and settings of both machines so 
 | Distribution | Omarchy (Arch Linux based), same configuration as the PC | Omarchy 4.5.0 (Arch Linux based) |
 | Kernel | 7.2.15-1-omarchy | 7.2.15-1-omarchy |
 | CPU frequency driver | `intel_pstate` (active mode) | `amd-pstate-epp` |
-| Governor / energy preference | `powersave` / `performance` (the power profile sets only the energy preference under `intel_pstate`) | `performance` / `performance` |
+| Governor / energy preference | `performance` / `performance`. Under `intel_pstate` the power profile sets only the energy preference, so the governor must be set after every boot (command in section 9) | `performance` / `performance` (already set) |
 | Power profile (`powerprofilesctl get`) | `performance` (ACPI platform profile `performance`) | `performance` |
 
 Both machines are rolling-release Arch systems: **do not update packages (`pacman -Syu`, `omarchy-update`) from the code freeze until the last experiment**, so the compiler and libraries stay as recorded here.
@@ -131,8 +131,8 @@ The RAPL energy counter is readable only by root. Once after every boot, on both
 | Setting | Laptop 1 | PC |
 |---|---|---|
 | Power profile | `powerprofilesctl set performance` | `powerprofilesctl set performance` |
-| Manufacturer thermal profile | Dell Thermal Management: Ultra Performance (set in BIOS; check it is still set) | None |
-| Sleep / idle lock during runs | Off for the session **(fill in how: Omarchy idle settings)** | Same |
+| Manufacturer thermal profile | Dell Ultra Performance: under Linux this is `/sys/firmware/acpi/platform_profile` = `performance` (choices: cool, quiet, balanced, performance), set by `powerprofilesctl set performance`. Only if it is not `performance`, check Dell Thermal Management in the BIOS | None |
+| Sleep / idle lock during runs | Off for the session: `omarchy-toggle-idle stay-awake` before it, `omarchy-toggle-idle allow-idle` after it | Same |
 | Time sync | systemd-timesyncd (`timedatectl`: "System clock synchronized: yes") | Same (time zone Asia/Karachi) |
 | Repository path | `/home/aztrek/projects/connect-more` (a fresh clone on the Linux disk) | `/home/aztrek/projects/connect-more` |
 | Sensor logging interval | 1000 ms (`scripts/sensor_log.py`) | Same |
@@ -143,8 +143,8 @@ Omarchy enables ufw and refuses incoming connections by default. Allow the two p
 
 | Rule | Command |
 |---|---|
-| Messaging and log copying, TCP 5555 | `sudo ufw allow from 192.168.2.0/24 to any port 5555 proto tcp comment connect-more` and the same for the Wi-Fi subnet (`192.168.18.0/24` at home). PC: done 7 Nov |
-| iperf3, TCP 5201 | `sudo ufw allow from 192.168.2.0/24 to any port 5201 proto tcp comment connect-more`, and the same for the Wi-Fi subnet. PC: done 7 Nov |
+| Messaging and log copying, TCP 5555 | `sudo ufw allow from 192.168.2.0/24 to any port 5555 proto tcp comment connect-more` and the same for the Wi-Fi subnet (`192.168.18.0/24` at home). Both machines: done 7 Nov |
+| iperf3, TCP 5201 | `sudo ufw allow from 192.168.2.0/24 to any port 5201 proto tcp comment connect-more`, and the same for the Wi-Fi subnet. Both machines: done 7 Nov |
 | Ping | allowed by ufw's default rules |
 
 ---
@@ -160,6 +160,7 @@ Omarchy enables ufw and refuses incoming connections by default. Allow the two p
 - Cable addresses with NetworkManager, once per machine: `nmcli connection add type ethernet ifname <interface> con-name c4-cable ipv4.method manual ipv4.addresses 192.168.2.x/24 ipv6.method disabled`, then `nmcli connection up c4-cable` when the cable is plugged in.
 - The cable subnet (192.168.2.x) does not clash with the home Wi-Fi (192.168.18.x). On another Wi-Fi network, check for a clash with `ip -br addr` and switch the cable to 10.42.0.x if needed.
 - Messaging port: TCP 5555.
+- Laptop 1's cable link is the ASIX AX88179B USB adapter (`cdc_ncm` driver). `ping -c 20 -n 192.168.2.2` on 7 Nov: min/avg/max 1.358/1.480/1.770 ms. This is higher than the usual 0.2–0.5 ms on gigabit Ethernet, likely because `cdc_ncm` batches packets; the network check (`scripts/network_check.py`) measures it properly.
 
 ---
 
@@ -181,15 +182,24 @@ Omarchy enables ufw and refuses incoming connections by default. Allow the two p
 
 ## 9. Experiment Session Checklist
 
-The full procedure is `docs/session-checklist.md`. Before every session, on both machines:
+The full procedure is `docs/session-checklist.md`.
+
+After every boot, on both machines:
+
+1. `sudo chmod a+r /sys/class/powercap/intel-rapl:0/energy_uj` (RAPL counter readable).
+2. `powerprofilesctl set performance`.
+3. Laptop 1 only: `echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` (the PC's governor is already `performance`).
+4. `nmcli connection up c4-cable`.
+5. `omarchy-toggle-idle stay-awake` (and `omarchy-toggle-idle allow-idle` after the session).
+
+Before every session, on both machines:
 
 1. Laptop 1 on its charger.
 2. No package updates since the freeze.
 3. Clocks synchronised (`timedatectl`).
 4. All other apps closed.
-5. Power profile `performance`; Laptop 1's Dell profile unchanged.
-6. RAPL counter readable (the `chmod` above, after every boot).
-7. Note the room temperature.
+5. Power profile, governor and Laptop 1's Dell profile as in sections 2 and 6.
+6. Note the room temperature.
 
 ---
 
@@ -233,3 +243,4 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver /sys/devices/system/cpu/
 | 2026-11-07 | Both | **Moved to Linux.** Laptop 2 is no longer available; a desktop PC (Ryzen 7 7700) replaces it as `pc`. Both machines run Omarchy. Toolchain now from pacman: GCC 16.2.1, CMake 4.4.4, LLVM 23.1.3, uv 0.13.4 (`CM_EXPECTED_GCC_VERSION` and `required-version` updated; `uv.lock` unchanged). HWiNFO replaced by `scripts/sensor_log.py`; firewall by ufw; cable addresses by NetworkManager |
 | 2026-11-07 | PC | Installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; all smoke tests pass |
 | 2026-11-07 | Laptop 1 | Linux setup: installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; `c4-cable` (192.168.2.1/24 on `enp0s20f0u1u1c2`, no autoconnect), PC answers ping; recorded kernel, `intel_pstate` settings, power limits (PL1 45 W holds) and the ASIX AX88179B adapter; all smoke tests pass |
+| 2026-11-07 | Both | `performance` governor on both machines (Laptop 1: set after every boot). Recorded the PC's memory (1 × 16 GB, single channel, 4800 MT/s), the stay-awake steps, Dell's thermal profile under Linux, Laptop 1's cable ping; one per-boot list in section 9 |
