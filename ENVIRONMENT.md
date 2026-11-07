@@ -173,10 +173,10 @@ Omarchy enables ufw and refuses incoming connections by default. Allow the two p
 | Small boards against Tromp (4x4, 6x4, 6x6) | ✅ 18/18 | ✅ 18/18 |
 | pytest | ✅ 229 passed | ✅ 229 passed |
 | Sensor logger reads temperature, clocks and power | ✅ (about 5–10 W package power and 45–46 °C at idle) | ✅ (about 20 W package power at idle) |
-| Cross-machine ZeroMQ over cable | — | — |
-| Cross-machine ZeroMQ over Wi-Fi | — | — |
-| iperf3 over cable | — | — |
-| iperf3 over Wi-Fi | — | — |
+| Cross-machine ZeroMQ over cable | ✅ 7 Nov 2026, Laptop 1 to PC: round trip (86 bytes) median 1540 µs, p95 1633 µs; transfer 886 Mbit/s; ping median 1.52 ms, 0 of 20 lost | — |
+| Cross-machine ZeroMQ over Wi-Fi | ✅ 7 Nov 2026, Laptop 1 to PC: round trip (86 bytes) median 2412 µs, p95 4710 µs; transfer 204 Mbit/s; ping median 4.96 ms, 0 of 20 lost | — |
+| iperf3 over cable | ✅ 7 Nov 2026: send (Laptop 1 to PC) 941 Mbit/s, receive (PC to Laptop 1) 941 Mbit/s | — |
+| iperf3 over Wi-Fi | ✅ 7 Nov 2026: send (Laptop 1 to PC) 264 Mbit/s, receive (PC to Laptop 1) 243 Mbit/s | — |
 
 ---
 
@@ -245,3 +245,4 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver /sys/devices/system/cpu/
 | 2026-11-07 | Laptop 1 | Linux setup: installed Ninja 1.13.2 and iperf3 3.22; ufw rules for TCP 5555 and 5201 from 192.168.2.0/24 and 192.168.18.0/24; `c4-cable` (192.168.2.1/24 on `enp0s20f0u1u1c2`, no autoconnect), PC answers ping; recorded kernel, `intel_pstate` settings, power limits (PL1 45 W holds) and the ASIX AX88179B adapter; all smoke tests pass |
 | 2026-11-07 | Laptop 1 | Correction to the Laptop 1 row above: "PL1 45 W holds" is wrong. The `intel-rapl-mmio:0` PL1 moves with temperature (45 W hot, 76 W at idle); it is left as the platform sets it and logged every second (decision log C.11) |
 | 2026-11-07 | Both | `performance` governor on both machines (Laptop 1: set after every boot). Recorded the PC's memory (1 × 16 GB, single channel, 4800 MT/s), the stay-awake steps, Dell's thermal profile under Linux, Laptop 1's cable ping; one per-boot list in section 9 |
+| 2026-11-07 | Both | Network smoke tests from Laptop 1 to the PC over the cable and Wi-Fi (Wi-Fi run with `c4-cable` down on Laptop 1; its route to the PC went over Wi-Fi); results in section 8, logs `logs/network/2026-11-07_14-56-07_cable.jsonl` and `2026-11-07_14-57-57_wifi.jsonl` |
