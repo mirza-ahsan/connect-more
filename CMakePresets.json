@@ -2,7 +2,7 @@
   "version": 10,
   "cmakeMinimumRequired": { "major": 4, "minor": 4, "patch": 0 },
   "$comment": [
-    "Build presets for connect-more. Experiments use ONLY the 'release' preset, on both laptops.",
+    "Build presets for connect-more. Experiments use ONLY the 'release' preset, on both machines.",
     "Run: cmake --workflow --preset release   (configure + build + all tests)",
     "Small boards (checked against Tromp's table): cmake --workflow --preset small-boards"
   ],
@@ -24,7 +24,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CM_STRICT_TOOLCHAIN": "ON",
-        "CM_EXPECTED_GCC_VERSION": "16.1.0",
+        "CM_EXPECTED_GCC_VERSION": "16.2.1",
         "CM_ARCH": "x86-64-v3",
         "CM_STATIC": "ON",
         "CM_ENABLE_LTO": "OFF",

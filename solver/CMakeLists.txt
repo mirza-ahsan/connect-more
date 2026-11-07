@@ -4,7 +4,7 @@
 #
 #  For every WIDTHxHEIGHT in CM_BOARD_VARIANTS (e.g. 7x6) this builds:
 #      c4core_7x6          static library from src/*.cpp
-#      <app>_7x6.exe       one executable per apps/<app>.cpp
+#      <app>_7x6           one executable per apps/<app>.cpp
 #      test_<name>_7x6     one unit test per tests/test_<name>.cpp  (label: unit)
 #      verify_<data>_7x6   c4solve_7x6 --verify tests/data/7x6/<data>.txt (label: verify)
 #

@@ -1,9 +1,9 @@
 # =============================================================================
-#  connect-more: distributed Connect Four solver for unequal consumer laptops
+#  connect-more: distributed Connect Four solver for unequal consumer machines
 #  Top-level CMake build
 # =============================================================================
 #
-#  Quick start (PowerShell, from the repo root):
+#  Quick start (from the repo root):
 #      cmake --workflow --preset release        # configure + build + test
 #  Or step by step:
 #      cmake --preset release
@@ -13,8 +13,8 @@
 #  Binaries land in:  build/<preset>/bin/
 #
 #  The toolchain is locked (see ENVIRONMENT.md):
-#      CMake 4.4.3 (Kitware) | Ninja 1.13.2 | WinLibs GCC 16.1.0 (UCRT, POSIX threads)
-#  Experiment builds MUST use the "release" preset on both laptops so both run
+#      Omarchy (Arch Linux) packages: CMake 4.4.4 | Ninja | GCC 16.2.1
+#  Experiment builds MUST use the "release" preset on both machines so both run
 #  identically built code.
 # =============================================================================
 
@@ -30,7 +30,7 @@ endif()
 
 project(ConnectMore
   VERSION 0.1.0
-  DESCRIPTION "Distributed Connect Four solver for heterogeneous consumer laptops"
+  DESCRIPTION "Distributed Connect Four solver for heterogeneous consumer machines"
   HOMEPAGE_URL "https://github.com/mirza-ahsan/connect-more"
   LANGUAGES CXX)
 
@@ -39,12 +39,12 @@ project(ConnectMore
 # -----------------------------------------------------------------------------
 option(CM_STRICT_TOOLCHAIN
   "Fail if the compiler is not the locked GCC version (keep ON for experiments)" ON)
-set(CM_EXPECTED_GCC_VERSION "16.1.0" CACHE STRING
+set(CM_EXPECTED_GCC_VERSION "16.2.1" CACHE STRING
   "Locked GCC version, see ENVIRONMENT.md")
 set(CM_ARCH "x86-64-v3" CACHE STRING
-  "Value for -march. Must be supported by BOTH laptops (x86-64-v3 = AVX2 level)")
+  "Value for -march. Must be supported by BOTH machines (x86-64-v3 = AVX2 level)")
 option(CM_STATIC
-  "Link executables fully statically (no MinGW DLLs needed at runtime)" ON)
+  "Link executables fully statically (no shared libraries needed at runtime)" ON)
 option(CM_WARNINGS_AS_ERRORS
   "Treat compiler warnings as errors" OFF)
 option(CM_ENABLE_LTO
@@ -54,7 +54,7 @@ option(CM_ENABLE_UBSAN
 set(CM_BOARD_VARIANTS "7x6" CACHE STRING
   "Semicolon-separated board sizes (WIDTHxHEIGHT) to build, e.g. 7x6;6x7;6x5")
 set(CM_DEFAULT_TT_MB "1024" CACHE STRING
-  "Default transposition table size in MB. Keep identical on both laptops")
+  "Default transposition table size in MB. Keep identical on both machines")
 
 option(BUILD_TESTING "Build C++ unit and verification tests" ON)
 if(BUILD_TESTING)
@@ -66,7 +66,7 @@ endif()
 # -----------------------------------------------------------------------------
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   message(FATAL_ERROR
-    "This project is locked to GCC (WinLibs MinGW-w64).\n"
+    "This project is locked to GCC (the Omarchy / Arch Linux gcc package).\n"
     "Detected compiler: ${CMAKE_CXX_COMPILER_ID} (${CMAKE_CXX_COMPILER})")
 endif()
 
@@ -75,10 +75,10 @@ if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL CM_EXPECTED_GCC_VERSION)
   if(CM_STRICT_TOOLCHAIN)
     message(FATAL_ERROR
       "${_cm_msg}\n"
-      "Put the locked WinLibs mingw64\\bin first on PATH, or configure with "
+      "Install the locked gcc package (ENVIRONMENT.md), or configure with "
       "-DCM_STRICT_TOOLCHAIN=OFF for development only (never for experiment builds).")
   else()
-    message(WARNING "${_cm_msg} Builds will NOT be comparable across laptops.")
+    message(WARNING "${_cm_msg} Builds will NOT be comparable across machines.")
   endif()
 endif()
 
@@ -86,9 +86,9 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "A 64-bit compiler is required (bitboards use 64-bit integers).")
 endif()
 
-if(NOT WIN32)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
   message(WARNING
-    "Experiments run on Windows 11. Non-Windows builds are for development only.")
+    "Experiments run on Linux (Omarchy). Builds on ${CMAKE_SYSTEM_NAME} are for development only.")
 endif()
 
 if(NOT CMAKE_GENERATOR MATCHES "Ninja")
@@ -97,7 +97,7 @@ if(NOT CMAKE_GENERATOR MATCHES "Ninja")
     "Use the presets: cmake --preset release")
 endif()
 
-# std::thread needs GCC's POSIX thread model (the WinLibs POSIX build has it).
+# std::thread needs GCC's POSIX thread model (GCC on Linux has it).
 execute_process(
   COMMAND "${CMAKE_CXX_COMPILER}" -v
   ERROR_VARIABLE _cm_gcc_v
@@ -107,7 +107,7 @@ if(_cm_gcc_v MATCHES "Thread model: ([a-z0-9]+)")
   if(NOT CM_THREAD_MODEL STREQUAL "posix")
     message(FATAL_ERROR
       "GCC thread model is '${CM_THREAD_MODEL}', but 'posix' is required for std::thread.\n"
-      "Use the WinLibs POSIX build (BrechtSanders.WinLibs.POSIX.UCRT).")
+      "Use a GCC built with POSIX threads (the Omarchy / Arch Linux gcc package).")
   endif()
 else()
   set(CM_THREAD_MODEL "unknown")
@@ -157,7 +157,7 @@ add_library(cm::options ALIAS cm_options)
 
 target_compile_features(cm_options INTERFACE cxx_std_20)
 
-# Code generation. -mtune=generic avoids tuning for one laptop's CPU, keeping
+# Code generation. -mtune=generic avoids tuning for one machine's CPU, keeping
 # the comparison fair. Release flags come from CMake's GCC default: -O3 -DNDEBUG.
 target_compile_options(cm_options INTERFACE
   -march=${CM_ARCH}
@@ -187,12 +187,10 @@ target_compile_options(cm_options INTERFACE
 
 target_compile_definitions(cm_options INTERFACE
   CM_DEFAULT_TT_MB=${CM_DEFAULT_TT_MB}
-  "$<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>"
-  # Windows 10+ API level, and keep <windows.h> from breaking std::min/max.
-  "$<$<BOOL:${WIN32}>:_WIN32_WINNT=0x0A00;WINVER=0x0A00;NOMINMAX;WIN32_LEAN_AND_MEAN>")
+  "$<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>")
 
 # Undefined-behaviour checks in trap mode: compile-only flags, so no libubsan
-# is needed at link time (MinGW does not ship it).
+# is needed at link time, and the static link keeps working.
 if(CM_ENABLE_UBSAN)
   target_compile_options(cm_options INTERFACE
     "$<$<CONFIG:Debug>:-fsanitize=undefined;-fsanitize-undefined-trap-on-error>")
