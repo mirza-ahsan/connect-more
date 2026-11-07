@@ -1,4 +1,4 @@
-"""Tests for scripts/collect_logs.py: Laptop 2's side is served from a thread on this laptop."""
+"""Tests for scripts/collect_logs.py: the PC's side is served from a thread on this machine."""
 
 import json
 import threading
@@ -12,13 +12,13 @@ from tests.helpers import free_port
 
 
 @pytest.fixture
-def laptop2(tmp_path: Path) -> Iterator[tuple[Path, int]]:
-    """A logs folder offered by `serve` in a daemon thread, as on Laptop 2."""
-    root = tmp_path / "laptop2-logs"
+def pc(tmp_path: Path) -> Iterator[tuple[Path, int]]:
+    """A logs folder offered by `serve` in a daemon thread, as on the PC."""
+    root = tmp_path / "pc-logs"
     (root / "workers").mkdir(parents=True)
-    (root / "workers/2026-11-05_10-00-00_laptop2.jsonl").write_bytes(b'{"event":"a"}\n')
-    (root / "hwinfo").mkdir()
-    (root / "hwinfo/session.CSV").write_bytes(bytes(range(256)) * 40_000)  # > 2 pieces
+    (root / "workers/2026-11-05_10-00-00_pc.jsonl").write_bytes(b'{"event":"a"}\n')
+    (root / "sensors").mkdir()
+    (root / "sensors/session.jsonl").write_bytes(bytes(range(256)) * 40_000)  # > 2 pieces
     port = free_port()
     stop = threading.Event()
     thread = threading.Thread(target=cl.serve, args=(root, port, stop), daemon=True)
@@ -29,36 +29,36 @@ def laptop2(tmp_path: Path) -> Iterator[tuple[Path, int]]:
 
 
 def test_pull_copies_new_and_grown_files_only(
-    laptop2: tuple[Path, int], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    pc: tuple[Path, int], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root, port = laptop2
-    monkeypatch.setattr(cl, "CHUNK", 1 << 20)  # the CSV comes in several pieces
+    root, port = pc
+    monkeypatch.setattr(cl, "CHUNK", 1 << 20)  # the sensor log comes in several pieces
     logs = tmp_path / "laptop1-logs"
     report = cl.pull("127.0.0.1", logs, port)
     assert sorted(report.copied) == [
-        "hwinfo/session.CSV",
-        "workers/2026-11-05_10-00-00_laptop2.jsonl",
+        "sensors/session.jsonl",
+        "workers/2026-11-05_10-00-00_pc.jsonl",
     ]
     assert report.problems == []
     for relative in report.copied:
-        assert (logs / "laptop2" / relative).read_bytes() == (root / relative).read_bytes()
+        assert (logs / "pc" / relative).read_bytes() == (root / relative).read_bytes()
 
-    # Nothing new: nothing copied. Then a log grows (HWiNFO still writing): copied again.
+    # Nothing new: nothing copied. Then a log grows (still being written): copied again.
     assert cl.pull("127.0.0.1", logs, port).unchanged == 2
-    with (root / "hwinfo/session.CSV").open("ab") as f:
+    with (root / "sensors/session.jsonl").open("ab") as f:
         f.write(b"more rows\n")
     report = cl.pull("127.0.0.1", logs, port)
-    assert report.copied == ["hwinfo/session.CSV"] and report.unchanged == 1
-    assert (logs / "laptop2/hwinfo/session.CSV").read_bytes() == (
-        root / "hwinfo/session.CSV"
+    assert report.copied == ["sensors/session.jsonl"] and report.unchanged == 1
+    assert (logs / "pc/sensors/session.jsonl").read_bytes() == (
+        root / "sensors/session.jsonl"
     ).read_bytes()
     assert not list(logs.rglob("*.partial"))
 
 
-def test_a_larger_copy_here_is_left_alone(laptop2: tuple[Path, int], tmp_path: Path) -> None:
-    _, port = laptop2
+def test_a_larger_copy_here_is_left_alone(pc: tuple[Path, int], tmp_path: Path) -> None:
+    _, port = pc
     logs = tmp_path / "laptop1-logs"
-    mine = logs / "laptop2/workers/2026-11-05_10-00-00_laptop2.jsonl"
+    mine = logs / "pc/workers/2026-11-05_10-00-00_pc.jsonl"
     mine.parent.mkdir(parents=True)
     mine.write_bytes(b"x" * 1000)
     report = cl.pull("127.0.0.1", logs, port)
@@ -93,18 +93,18 @@ def test_bad_requests_get_an_error_not_a_crash(tmp_path: Path) -> None:
     assert cl._answer(tmp_path, b'{"op": "echo"}', [b"hello"]) == ({}, b"hello")
 
 
-def test_a_rewritten_original_keeps_the_old_copy(laptop2: tuple[Path, int], tmp_path: Path) -> None:
-    root, port = laptop2
+def test_a_rewritten_original_keeps_the_old_copy(pc: tuple[Path, int], tmp_path: Path) -> None:
+    root, port = pc
     logs = tmp_path / "laptop1-logs"
     cl.pull("127.0.0.1", logs, port)
-    original = root / "workers/2026-11-05_10-00-00_laptop2.jsonl"
+    original = root / "workers/2026-11-05_10-00-00_pc.jsonl"
     first = original.read_bytes()
     original.write_bytes(b'{"event":"other"}\n' * 3)  # not a longer version of the first
     report = cl.pull("127.0.0.1", logs, port)
     assert any("rewritten" in p for p in report.problems)
     # The new copy takes the name; the old one is kept beside it.
-    mine = logs / "laptop2/workers/2026-11-05_10-00-00_laptop2.jsonl"
-    (kept,) = (logs / "laptop2/workers").glob("*.rewritten-*.jsonl")
+    mine = logs / "pc/workers/2026-11-05_10-00-00_pc.jsonl"
+    (kept,) = (logs / "pc/workers").glob("*.rewritten-*.jsonl")
     assert mine.read_bytes() == original.read_bytes() and kept.read_bytes() == first
     assert not list(logs.rglob("*.partial"))
     # Later pulls carry on as usual: nothing more is copied or set aside.

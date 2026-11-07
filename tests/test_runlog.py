@@ -78,8 +78,8 @@ def test_many_threads_write_whole_lines(tmp_path: Path) -> None:
 
 
 def test_log_path(tmp_path: Path) -> None:
-    assert log_path("2026-11-04_V1_r1", "worker-laptop2", tmp_path) == (
-        tmp_path / "2026-11-04_V1_r1" / "worker-laptop2.jsonl"
+    assert log_path("2026-11-04_V1_r1", "worker-pc", tmp_path) == (
+        tmp_path / "2026-11-04_V1_r1" / "worker-pc.jsonl"
     )
     for bad in ("../escape", "a b", ""):
         with pytest.raises(ValueError):
