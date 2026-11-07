@@ -20,7 +20,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <cstdio>
 #include <exception>
 #include <fstream>
 #include <iomanip>
@@ -39,11 +38,6 @@
 #include "c4/task_pool.hpp"
 #include "c4/transposition_table.hpp"
 #include "cm/build_info.hpp"
-
-#ifdef _WIN32
-#include <fcntl.h>
-#include <io.h>
-#endif
 
 namespace
 {
@@ -358,14 +352,6 @@ int main(int argc, char** argv)
             options.threads > 0 ? options.threads : static_cast<int>(std::thread::hardware_concurrency());
         threads = std::max(threads, 1);
     }
-
-#ifdef _WIN32
-    // Plain "\n" line ends on the pipe, as docs/protocol.md says, instead of Windows' "\r\n".
-    if (options.mode == "service")
-    {
-        _setmode(_fileno(stdout), _O_BINARY);
-    }
-#endif
 
     try
     {
