@@ -10,7 +10,9 @@ Follow this for every experiment session (work plan steps 24 and 28–32). Pilot
 - [ ] **No package updates** since the freeze (no `pacman -Syu` or `omarchy-update`).
 - [ ] **Clocks synced:** `timedatectl` shows "System clock synchronized: yes" on both.
 - [ ] **Other apps closed**: browsers, chat, sync tools, editors. Only terminals stay open.
-- [ ] **Power settings** unchanged (ENVIRONMENT.md section 6): `powerprofilesctl get` says `performance`; Laptop 1's Dell *Ultra Performance* profile still set; no sleep or screen lock during the session.
+- [ ] **Power settings** unchanged (ENVIRONMENT.md sections 2 and 6): `powerprofilesctl get` says `performance`; Laptop 1's Dell *Ultra Performance* profile still set.
+- [ ] **Governor** `performance` on both: `cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor | sort -u` shows only `performance`. On Laptop 1, set it after every boot: `echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` (the PC's is already `performance`).
+- [ ] **Stay awake:** `omarchy-toggle-idle stay-awake` on both, so there is no sleep or screen lock during the session (undone in section 6).
 - [ ] **Power counter readable** (once after every boot): `sudo chmod a+r /sys/class/powercap/intel-rapl:0/energy_uj`.
 - [ ] **Room temperature** noted in the session notes (below).
 - [ ] **Code frozen**: `git status` shows nothing to commit, and `git log -1` shows the freeze commit written in `docs/decision-log.md`. After any pull, rebuild: `cmake --workflow --preset release`.
@@ -20,7 +22,7 @@ Follow this for every experiment session (work plan steps 24 and 28–32). Pilot
 
   It writes `logs/sensors/<date-time>_<machine>.jsonl`, one sample a second. The run scripts read the newest log there for the cool-down and refuse to start if it has no sample from the last 10 s.
 - [ ] **Network** for this block of runs:
-  - Cable: the PC's Ethernet port goes to Laptop 1's USB-C adapter (not the router); `nmcli connection up c4-cable` on both; `ip -br addr` shows 192.168.2.1 and 192.168.2.2.
+  - Cable: the PC's Ethernet port goes to Laptop 1's USB-C adapter (not the router); `nmcli connection up c4-cable` on both (again after every reboot); `ip -br addr` shows 192.168.2.1 and 192.168.2.2.
   - Wi-Fi: the PC's cable unplugged, both machines on the chosen Wi-Fi network; write down both Wi-Fi addresses from `ip -br addr`.
 - [ ] **Firewall**: ufw allows TCP 5555 and 5201 from the cable and Wi-Fi subnets on both machines (ENVIRONMENT.md section 6).
 
@@ -79,6 +81,7 @@ uv run python -m scripts.run_experiment coordinator --strategy V1 --link cable -
 - [ ] Laptop 1: `uv run python -m scripts.collect_logs pull --peer 192.168.2.2` (copies the final logs, including the PC's complete sensor log).
 - [ ] Laptop 1: `uv run python -m scripts.collect_logs backup --to <second place>` (a USB drive or another disk). The PC too, for its own folder.
 - [ ] Session notes written.
+- [ ] `omarchy-toggle-idle allow-idle` on both machines.
 
 ## Session notes
 
