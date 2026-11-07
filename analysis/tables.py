@@ -3,7 +3,8 @@
     uv run python -m analysis.tables [--logs logs] [--out analysis/out] [--pilot]
 
 Writes, into the output folder (git-ignored; derived data only, the raw logs are never changed):
-- runs.csv: one row per run with every metric (analysis/metrics.py);
+- runs.csv: one row per run with every metric (analysis/metrics.py), including each machine's
+  package power, temperature, clock and power limit during the run, from the sensor logs;
 - summary.csv and summary.md: per experiment, strategy, link and depth, the mean, minimum and
   maximum of the main metrics over the repeats, and how many runs there were.
 Only runs that ended with the right result, and that scripts/run_experiment.py found valid, are
@@ -18,6 +19,8 @@ import pandas as pd
 
 from analysis import metrics
 from analysis.load_runs import Run, load_runs, read_log, runs_table
+from analysis.load_sensors import read_sensors
+from common.machines import COORDINATOR, MACHINES
 
 OUT = Path(__file__).resolve().parent / "out"
 GROUP = ["experiment", "machine", "strategy", "link", "depth", "start"]
@@ -39,6 +42,9 @@ MAIN = [
     "positions_unneeded",
     "answered_from_memory",
     "round_trip_median",
+    f"pl1_w_mean_{COORDINATOR}",
+    f"pl1_low_share_{COORDINATOR}",
+    *(f"{value}_{machine}" for value in ("power_w_mean", "package_c_max") for machine in MACHINES),
 ]
 
 
@@ -60,7 +66,10 @@ def used(run: Run) -> bool:
     return summary.get("correct") is True and run.valid is not False
 
 
-def per_run(runs: list[Run], unsplit: dict[str, float]) -> pd.DataFrame:
+def per_run(
+    runs: list[Run], unsplit: dict[str, float], sensors: dict[str, list[pd.DataFrame]]
+) -> pd.DataFrame:
+    """One row per run with every metric (the sensor values from `read_sensors`)."""
     refs = metrics.references([r for r in runs if used(r)])
     table = runs_table(runs)
     extra = []
@@ -77,6 +86,7 @@ def per_run(runs: list[Run], unsplit: dict[str, float]) -> pd.DataFrame:
         row.update(metrics.work(run, refs, unsplit.get(run.config["start"])))
         row.update(metrics.repeated_work(run))
         row.update(metrics.network_cost(run))
+        row.update(metrics.sensor_stats(run, sensors))
         if (error := metrics.calibration_error(run)) is not None:
             row.update({f"calibration_{k}": v for k, v in error.items()})
         extra.append(row)
@@ -124,7 +134,7 @@ def main(argv: list[str]) -> int:
         print(f"tables: no runs under {args.logs}", file=sys.stderr)
         return 1
     args.out.mkdir(parents=True, exist_ok=True)
-    frame = per_run(runs, unsplit_positions(args.logs))
+    frame = per_run(runs, unsplit_positions(args.logs), read_sensors(args.logs))
     frame.to_csv(args.out / "runs.csv", index=False)
     table = summary(frame)
     table.to_csv(args.out / "summary.csv", index=False)

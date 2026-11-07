@@ -26,9 +26,9 @@ import pandas as pd
 
 from analysis import metrics
 from analysis.load_runs import Run, load_runs
-from analysis.load_sensors import read_sensor_log
+from analysis.load_sensors import read_sensors
 from analysis.tables import OUT, per_run, unsplit_positions
-from common.machines import COORDINATOR, MACHINES, PEER, PEER_DIR, SENSORS_DIR
+from common.machines import MACHINES
 
 MACHINE_COLOURS = dict(zip(MACHINES, ("#2a78d6", "#eb6834"), strict=True))  # categorical slots 1, 2
 LINK_COLOURS = {"cable": "#2a78d6", "wifi": "#eb6834"}
@@ -119,30 +119,9 @@ def timeline_figure(run: Run, path: Path) -> bool:
     return True
 
 
-def sensor_series(run: Run, sensors: dict[str, list[pd.DataFrame]]) -> dict[str, pd.DataFrame]:
-    """Per machine: time (s from t0), package temperature, power and clock during the run, from
-    that machine's sensor logs (read once by `read_sensors`)."""
-    t0 = run.t0_wall
-    t = metrics.solve_time(run)
-    if t0 is None or t is None:
-        return {}
-    offsets = run.wall_offsets()
-    found = {}
-    for worker in run.hellos:
-        machine = run.machine(worker)
-        offset = 0.0 if machine == COORDINATOR else offsets.get(worker, 0.0)
-        for frame in sensors.get(machine, []):
-            time = frame["wall"] - offset - t0
-            inside = frame[(time >= -5) & (time <= t + 5)]
-            if not inside.empty:
-                found[machine] = inside.assign(time=time[inside.index])
-                break
-    return found
-
-
 def sensors_figure(run: Run, readings: dict[str, list[pd.DataFrame]], path: Path) -> bool:
     speed = metrics.speed_over_time(run)
-    sensors = sensor_series(run, readings)
+    sensors = metrics.sensor_series(run, readings, margin=5.0)
     if speed.empty and not sensors:
         return False
     panels = [("Positions per second (millions)", None)]
@@ -176,20 +155,6 @@ def sensors_figure(run: Run, readings: dict[str, list[pd.DataFrame]], path: Path
     return True
 
 
-def read_sensors(logs: Path) -> dict[str, list[pd.DataFrame]]:
-    """Each machine's sensor logs, read once: wall clock, package temperature, power, clock."""
-    folders = {COORDINATOR: logs / SENSORS_DIR, PEER: logs / PEER_DIR / SENSORS_DIR}
-    wanted = ("wall", "package_c", "power_w", "clock_mhz")
-    return {
-        machine: [
-            read_sensor_log(path, wanted)
-            for path in sorted(folder.glob("*.jsonl"))
-            if ".rewritten-" not in path.name  # an old copy set aside by collect_logs
-        ]
-        for machine, folder in folders.items()
-    }
-
-
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m analysis.figures", description=__doc__)
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
@@ -203,9 +168,10 @@ def main(argv: list[str]) -> int:
         return 1
     args.out.mkdir(parents=True, exist_ok=True)
     made = []
-    if solve_time_figure(per_run(runs, unsplit_positions(args.logs)), args.out / "solve_time.png"):
-        made.append("solve_time.png")
     sensors = read_sensors(args.logs)
+    runs_frame = per_run(runs, unsplit_positions(args.logs), sensors)
+    if solve_time_figure(runs_frame, args.out / "solve_time.png"):
+        made.append("solve_time.png")
     for run in runs:
         timeline = args.out / f"timeline_{run.run_id}.png"
         if timeline_figure(run, timeline):
