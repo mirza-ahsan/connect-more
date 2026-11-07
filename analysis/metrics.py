@@ -5,14 +5,14 @@ here changes a log. Times are seconds on the coordinator's clock from the first 
 the solve time T is the summary's `solve_seconds`.
 
 - Solve time T (analysis/tables.py gives each setting's mean with its lowest and highest).
-- Speedup S1 = T1 / T and S2 = T2 / T, with T1, T2 the mean E1 solve times of each laptop alone.
+- Speedup S1 = T1 / T and S2 = T2 / T, with T1, T2 the mean E1 solve times of each machine alone.
 - Combined efficiency E = T_ideal / T, with T_ideal = T1 * T2 / (T1 + T2).
-- Idle thread-time per laptop: threads * T minus the busy time of its solver threads inside
+- Idle thread-time per machine: threads * T minus the busy time of its solver threads inside
   [0, T] (a task still running at T counts as busy until T). The tail, as the methodology
-  defines it, is threads * (T - the end of the laptop's last task); `thread_tail_idle` adds up
+  defines it, is threads * (T - the end of the machine's last task); `thread_tail_idle` adds up
   each thread's own idle time after its last task instead, which also shows threads that ran
   out of work before the others.
-- Extra work: positions searched by both laptops (stopped and cancelled tasks included) divided
+- Extra work: positions searched by both machines (stopped and cancelled tasks included) divided
   by a reference: Laptop 1 alone (E1), or the unsplit single search (E1). The E1 references are V3
   runs with one worker, which lose the work of the tasks they stop and split, so the unsplit
   reference is the cleaner one; report the positions lost next to both.
@@ -21,10 +21,10 @@ the solve time T is the summary's `solve_seconds`.
   was sent, and the positions searched in them. Copies sent only after an earlier copy was
   stopped or cancelled are not repeats (that lost work is in the positions lost). The summary's
   `copied_tasks` (copies among the tasks at the start) is a separate number.
-- Speed over time: positions per second of each laptop in 10-second windows, from its solver's
+- Speed over time: positions per second of each machine in 10-second windows, from its solver's
   `progress` reports, placed at the middle of the time each rate covers.
-- Calibration error (V0): Laptop 1's speed over Laptop 2's in positions per second, measured on
-  the calibration set before the run, against the same ratio reached over the run (each laptop
+- Calibration error (V0): Laptop 1's speed over the PC's in positions per second, measured on
+  the calibration set before the run, against the same ratio reached over the run (each machine
   only up to the end of its last task, so time it sat idle after its share does not count).
 - Network cost: messages and bytes per run, and the clock-check round trips.
 """
@@ -36,6 +36,7 @@ import pandas as pd
 
 from analysis.load_runs import Run
 from common import messages as m
+from common.machines import COORDINATOR, MACHINES, PEER
 from coordinator.board import Position
 
 WINDOW = 10.0  # seconds per window for speed over time
@@ -47,22 +48,22 @@ def solve_time(run: Run) -> float | None:
 
 
 def references(runs: list[Run]) -> dict[str, float]:
-    """The E1 references: mean solve time and positions of each laptop alone ("T1", "T2", "P1",
+    """The E1 references: mean solve time and positions of each machine alone ("T1", "T2", "P1",
     "P2"), from the E1 runs given (the caller passes only valid runs with the right result)."""
     found: dict[str, dict[str, list[float]]] = {}
     for run in runs:
         info, summary = run.info, run.summary
         if info.get("experiment") != "E1" or not summary or not summary.get("correct"):
             continue
-        laptop = info["laptop"]
-        times = found.setdefault(laptop, {"T": [], "P": []})
+        machine = info["machine"]
+        times = found.setdefault(machine, {"T": [], "P": []})
         times["T"].append(summary["solve_seconds"])
         times["P"].append(sum(w["positions"] for w in summary["workers"].values()))
     out = {}
-    for laptop, number in (("laptop1", "1"), ("laptop2", "2")):
-        if laptop in found:
-            out["T" + number] = mean(found[laptop]["T"])
-            out["P" + number] = mean(found[laptop]["P"])
+    for machine, number in zip(MACHINES, "12", strict=True):
+        if machine in found:
+            out["T" + number] = mean(found[machine]["T"])
+            out["P" + number] = mean(found[machine]["P"])
     return out
 
 
@@ -196,18 +197,16 @@ def run_speeds(run: Run) -> dict[str, float]:
 
 
 def calibration_error(run: Run) -> dict[str, float] | None:
-    """V0: Laptop 1's speed over Laptop 2's in positions per second, on the calibration set and
-    over the run; None for runs without calibration or without both laptops."""
+    """V0: Laptop 1's speed over the PC's in positions per second, on the calibration set and
+    over the run; None for runs without calibration or without both machines."""
     summary = run.summary or {}
-    calibration = {run.laptop(w): v for w, v in (summary.get("calibration") or {}).items()}
-    rates = {run.laptop(w): v for w, v in run_speeds(run).items()}
-    if not {"laptop1", "laptop2"} <= set(calibration) & set(rates):
+    calibration = {run.machine(w): v for w, v in (summary.get("calibration") or {}).items()}
+    rates = {run.machine(w): v for w, v in run_speeds(run).items()}
+    if not set(MACHINES) <= set(calibration) & set(rates):
         return None
-    before = {
-        k: calibration[k]["positions"] / calibration[k]["seconds"] for k in ("laptop1", "laptop2")
-    }
-    measured = before["laptop1"] / before["laptop2"]
-    reached = rates["laptop1"] / rates["laptop2"]
+    before = {k: calibration[k]["positions"] / calibration[k]["seconds"] for k in MACHINES}
+    measured = before[COORDINATOR] / before[PEER]
+    reached = rates[COORDINATOR] / rates[PEER]
     return {"calibrated_ratio": measured, "run_ratio": reached, "error": measured / reached - 1}
 
 
