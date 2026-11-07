@@ -1,6 +1,7 @@
-"""Tests for scripts/network_check.py, on this laptop only. The echo side is Laptop 2's real
+"""Tests for scripts/network_check.py, on this machine only. The echo side is the PC's real
 server (scripts/collect_logs.py), run in a thread."""
 
+import subprocess
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -55,9 +56,22 @@ def test_no_echo_side_gives_up(monkeypatch: pytest.MonkeyPatch) -> None:
         context.destroy(linger=0)
 
 
-def test_ping_parses_windows_output() -> None:
+def test_ping_parses_linux_output() -> None:
     result = nc.ping("127.0.0.1", count=1)
     assert result["count"] == 1 and result["lost"] == 0 and result["times_ms"][0] >= 0
+
+
+def test_ping_leaves_out_duplicate_replies(monkeypatch: pytest.MonkeyPatch) -> None:
+    output = (
+        "PING 192.168.2.2 (192.168.2.2) 56(84) bytes of data.\n"
+        "64 bytes from 192.168.2.2: icmp_seq=1 ttl=64 time=0.412 ms\n"
+        "64 bytes from 192.168.2.2: icmp_seq=1 ttl=64 time=0.415 ms (DUP!)\n"
+        "64 bytes from 192.168.2.2: icmp_seq=3 ttl=64 time=1.25 ms\n"
+    )
+    done = subprocess.CompletedProcess([], 0, stdout=output, stderr="")
+    monkeypatch.setattr(nc.subprocess, "run", lambda *args, **kwargs: done)
+    result = nc.ping("192.168.2.2", count=3)
+    assert result["times_ms"] == [0.412, 1.25] and result["lost"] == 1
 
 
 def test_measure_writes_a_log(
