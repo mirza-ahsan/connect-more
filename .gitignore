@@ -23,6 +23,9 @@ compile_commands.json
 logs/
 *.CSV
 
+# --- Paper source (kept locally, not published) ---
+latex/
+
 # --- Editors / OS ---
 .vscode/*
 !.vscode/settings.json
