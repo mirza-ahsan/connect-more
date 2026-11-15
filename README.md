@@ -219,3 +219,8 @@ machines, keep the two roles and set your own cool-down temperatures in `scripts
   sets in `solver/tests/data/7x6/` are his.
 - The small-board results come from John Tromp's
   [Connect Four Playground](https://tromp.github.io/c4/c4.html).
+
+## License
+
+The code is released under the [MIT License](LICENSE). The 7x6 test sets in
+`solver/tests/data/7x6/` are Pascal Pons's and keep their original terms.
