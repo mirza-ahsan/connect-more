@@ -8,10 +8,13 @@ Writes PNG (300 dpi, for the paper) into the output folder:
 - timeline_<run_id>.png: per run, every solver thread of each machine as a lane, with each task as
   a bar from its start to its end (how it ended shown by fill), so idle time is visible;
 - sensors_<run_id>.png: per run, stacked panels on one time axis: positions per second of each
-  machine (10 s windows), CPU package temperature, package power and average clock, from each
+  machine (metrics.WINDOW windows), CPU package temperature, package power (with the laptop's
+  sustained power limit, dashed) and average clock, from each
   machine's sensor log (scripts/sensor_log.py: logs/sensors/ for Laptop 1, logs/pc/sensors/ for
-  the PC), lined up with the run through the clock checks. Never two y-scales on one panel.
-Colours: one fixed colour per machine (Laptop 1 blue, the PC orange) in every figure.
+  the PC), lined up with the run through the clock checks. Never two y-scales on one panel;
+- paper_sensors_v3.pdf: the paper's Fig. 3 (vector PDF): the V3 cable runs of E2 rounds 1 and 3
+  side by side, with the same panels; copy it into latex/fig/.
+Colours: one fixed colour per machine (the laptop blue, the PC orange) in every figure.
 """
 
 import argparse
@@ -27,14 +30,34 @@ import pandas as pd
 from analysis import metrics
 from analysis.load_runs import Run, load_runs
 from analysis.load_sensors import read_sensors
-from analysis.tables import OUT, per_run, unsplit_positions
+from analysis.tables import OUT, per_run, unsplit_positions, used
 from common.machines import MACHINES
 
 MACHINE_COLOURS = dict(zip(MACHINES, ("#2a78d6", "#eb6834"), strict=True))  # categorical slots 1, 2
+MACHINE_LABELS = dict(zip(MACHINES, ("Laptop", "PC"), strict=True))  # names in the legends
 LINK_COLOURS = {"cable": "#2a78d6", "wifi": "#eb6834"}
 INK, MUTED = "#2b2b2b", "#8a8a8a"
 END_HATCH = {"result": "", "stopped": "////", "cancelled": "...."}
 STRATEGIES = ["V0", "V1", "V2", "V3"]
+SPEED_LABEL = "Speed (M positions/s)"
+SENSOR_PANELS = [  # label, sensor log column, scale
+    ("CPU package (°C)", "package_c", 1.0),
+    ("Package power (W)", "power_w", 1.0),
+    ("Average clock (GHz)", "clock_mhz", 1e-3),
+]
+SENSOR_MARGIN = 5.0  # seconds of sensor samples shown before t0 and after the result
+PAPER_RUNS = {"experiment": "E2", "link": "cable"}  # the paper's sensor figure: these runs,
+PAPER_STRATEGY = "V3"  # of this strategy,
+PAPER_REPEATS = (1, 3)  # first and third round,
+PAPER_FIGURE = "paper_sensors_v3.pdf"  # written here; latex/fig/ holds a copy
+PAPER_STYLE = {  # in the paper's own look
+    "font.family": "serif",
+    "font.serif": ["STIXGeneral", "DejaVu Serif"],  # Times-like, shipped with matplotlib
+    "mathtext.fontset": "stix",
+    "font.size": 8,
+    "legend.fontsize": 7.5,
+    "pdf.fonttype": 42,  # TrueType in the PDF, as IEEE PDF checks ask
+}
 
 
 def _style(ax: plt.Axes) -> None:
@@ -119,38 +142,103 @@ def timeline_figure(run: Run, path: Path) -> bool:
     return True
 
 
+def _run_column(
+    axes: list[plt.Axes], run: Run, speed: pd.DataFrame, sensors: dict[str, pd.DataFrame]
+) -> None:
+    """Draws one run down a column of axes: each machine's speed on the first, then one
+    SENSOR_PANELS panel per further axis (the power panel also with each machine's sustained power
+    limit, dashed), with t0 and the moment the result was known (dotted) marked on every axis."""
+    for worker in sorted(speed["worker"].unique()):
+        machine = Run.machine(worker)
+        mine = speed[speed["worker"] == worker]
+        colour, name = MACHINE_COLOURS.get(machine, MUTED), MACHINE_LABELS.get(machine, machine)
+        axes[0].plot(mine["time"], mine["positions_per_s"] / 1e6, color=colour, label=name)
+    for ax, (_, key, scale) in zip(axes[1:], SENSOR_PANELS, strict=False):  # one axis: speed only
+        for machine, frame in sensors.items():
+            colour = MACHINE_COLOURS.get(machine, MUTED)
+            ax.plot(frame["time"], frame[key] * scale, color=colour, linewidth=1.0)
+            limit = metrics.power_limit(frame) if key == "power_w" else None
+            if limit is not None and limit.notna().any():
+                name = MACHINE_LABELS.get(machine, machine)
+                ax.plot(frame["time"], limit, color=colour, linestyle=(0, (3, 2)),
+                        label=f"{name} power limit (PL1)")  # fmt: skip
+    t = metrics.solve_time(run)
+    for ax in axes:
+        ax.axvline(0, color=MUTED, linewidth=0.6)
+        if t is not None:
+            ax.axvline(t, color=MUTED, linewidth=0.6, linestyle=":")
+        _style(ax)
+
+
 def sensors_figure(run: Run, readings: dict[str, list[pd.DataFrame]], path: Path) -> bool:
     speed = metrics.speed_over_time(run)
-    sensors = metrics.sensor_series(run, readings, margin=5.0)
+    sensors = metrics.sensor_series(run, readings, margin=SENSOR_MARGIN)
     if speed.empty and not sensors:
         return False
-    panels = [("Positions per second (millions)", None)]
-    if sensors:
-        panels += [
-            ("CPU package (°C)", "package_c"),
-            ("Package power (W)", "power_w"),
-            ("Average clock (MHz)", "clock_mhz"),
-        ]
-    fig, axes = plt.subplots(len(panels), 1, figsize=(6.5, 1.9 * len(panels)), sharex=True)
-    axes = [axes] if len(panels) == 1 else list(axes)
-    for worker in sorted(speed["worker"].unique()):
-        mine = speed[speed["worker"] == worker]
-        colour = MACHINE_COLOURS.get(Run.machine(worker), MUTED)
-        axes[0].plot(mine["time"], mine["positions_per_s"] / 1e6, color=colour, linewidth=2,
-                     label=Run.machine(worker))  # fmt: skip
-    for ax, (label, key) in zip(axes, panels, strict=True):
-        if key is not None:
-            for machine, frame in sensors.items():
-                ax.plot(frame["time"], frame[key], color=MACHINE_COLOURS[machine], linewidth=1.5,
-                        label=machine)  # fmt: skip
+    labels = [SPEED_LABEL] + ([label for label, _, _ in SENSOR_PANELS] if sensors else [])
+    fig, axes = plt.subplots(
+        len(labels), 1, figsize=(6.5, 1.9 * len(labels)), sharex=True, squeeze=False
+    )
+    column = list(axes[:, 0])
+    _run_column(column, run, speed, sensors)
+    for ax, label in zip(column, labels, strict=True):
         ax.set_ylabel(label, color=INK, fontsize=8)
-        _style(ax)
-    if axes[0].get_legend_handles_labels()[0]:
-        axes[0].legend(frameon=False, fontsize=7)
-    axes[0].set_title(run.run_id, fontsize=8, color=INK)
-    axes[-1].set_xlabel("Time from the first task sent (s)", color=INK, fontsize=9)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(frameon=False, fontsize=7)
+    column[0].set_title(run.run_id, fontsize=8, color=INK)
+    column[-1].set_xlabel("Time from the first task sent (s)", color=INK, fontsize=9)
     fig.tight_layout()
     fig.savefig(path, dpi=300)
+    plt.close(fig)
+    return True
+
+
+def paper_pair(runs: list[Run]) -> tuple[Run, Run] | None:
+    """The two runs of the paper's sensor figure: used measured runs (never a pilot, even with
+    --pilot) of PAPER_RUNS with PAPER_STRATEGY, in the order of PAPER_REPEATS; None if a repeat
+    has no such run or more than one."""
+    found: dict[object, list[Run]] = {}
+    for run in runs:
+        if (
+            used(run)
+            and not run.info.get("pilot")
+            and run.config["strategy"] == PAPER_STRATEGY
+            and all(run.info.get(key) == value for key, value in PAPER_RUNS.items())
+        ):
+            found.setdefault(run.info.get("repeat"), []).append(run)
+    first, second = (found.get(repeat, []) for repeat in PAPER_REPEATS)
+    return (first[0], second[0]) if len(first) == len(second) == 1 else None
+
+
+def paper_sensors_figure(
+    runs: list[Run], readings: dict[str, list[pd.DataFrame]], path: Path
+) -> bool:
+    """The paper's sensor figure (vector PDF): the paper_pair runs side by side, one column each
+    with the panels of the per-run sensor figures, sharing each row's y-scale."""
+    pair = paper_pair(runs)
+    if pair is None:
+        return False
+    labels = [SPEED_LABEL] + [label for label, _, _ in SENSOR_PANELS]
+    power_row = 1 + [key for _, key, _ in SENSOR_PANELS].index("power_w")
+    with plt.rc_context(PAPER_STYLE):
+        fig, axes = plt.subplots(len(labels), 2, figsize=(7.0, 5.2), sharex="col", sharey="row")
+        for col, run in enumerate(pair):
+            sensors = metrics.sensor_series(run, readings, margin=SENSOR_MARGIN)
+            _run_column(list(axes[:, col]), run, metrics.speed_over_time(run), sensors)
+            t = metrics.solve_time(run) or 0.0
+            title = f"({'ab'[col]}) Round {run.info['repeat']}: {t:.1f} s"
+            axes[0, col].set_title(title, fontsize=8.5, color=INK)
+            axes[-1, col].set_xlabel("Time from the first task sent (s)", color=INK)
+        for ax, label in zip(axes[:, 0], labels, strict=True):
+            ax.set_ylabel(label, color=INK)
+        axes[0, 0].set_ylim(bottom=0)
+        axes[power_row, 0].set_ylim(bottom=0)
+        machines, machine_names = axes[0, 0].get_legend_handles_labels()
+        limits, limit_names = axes[power_row, 0].get_legend_handles_labels()
+        names = machine_names + limit_names
+        fig.legend(machines + limits, names, loc="lower center", ncol=len(names), frameon=False)
+        fig.tight_layout(rect=(0, 0.04, 1, 1), h_pad=0.6, w_pad=1.0)
+        fig.savefig(path)
     plt.close(fig)
     return True
 
@@ -172,6 +260,8 @@ def main(argv: list[str]) -> int:
     runs_frame = per_run(runs, unsplit_positions(args.logs), sensors)
     if solve_time_figure(runs_frame, args.out / "solve_time.png"):
         made.append("solve_time.png")
+    if paper_sensors_figure(runs, sensors, args.out / PAPER_FIGURE):
+        made.append(PAPER_FIGURE)
     for run in runs:
         timeline = args.out / f"timeline_{run.run_id}.png"
         if timeline_figure(run, timeline):

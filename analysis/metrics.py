@@ -21,7 +21,7 @@ the solve time T is the summary's `solve_seconds`.
   was sent, and the positions searched in them. Copies sent only after an earlier copy was
   stopped or cancelled are not repeats (that lost work is in the positions lost). The summary's
   `copied_tasks` (copies among the tasks at the start) is a separate number.
-- Speed over time: positions per second of each machine in 10-second windows, from its solver's
+- Speed over time: positions per second of each machine in WINDOW-second windows, from its solver's
   `progress` reports, placed at the middle of the time each rate covers.
 - Calibration error (V0): Laptop 1's speed over the PC's in positions per second, measured on
   the calibration set before the run, against the same ratio reached over the run (each machine
@@ -44,7 +44,7 @@ from common import messages as m
 from common.machines import COORDINATOR, MACHINES, PEER
 from coordinator.board import Position
 
-WINDOW = 10.0  # seconds per window for speed over time
+WINDOW = 2.0  # seconds per window for speed over time (progress comes once a second)
 LOW_PL1 = 60.0  # W: halfway between the two PL1 values Laptop 1's platform sets (45 and 76 W)
 SAMPLE_SECONDS = 1.0  # a sensor sample's power and CPU use cover the second before it
 
@@ -231,14 +231,20 @@ def network_cost(run: Run) -> dict[str, float]:
     return out
 
 
-def window_stats(frame: pd.DataFrame) -> dict[str, float]:
-    """One machine's package power, temperature, clock and power limit over the samples given
-    (NaN for a value it never logged). The limit of a sample is the lower of the PL1 values the
-    machine logs (0 or less means none is set); a sample missing one of them is left out of the
-    two limit values, so `pl1_low_share` is the share of the samples with a known limit."""
+def power_limit(frame: pd.DataFrame) -> pd.Series:
+    """Each sample's sustained power limit: the lower of the PL1 values the machine logs (the
+    lower one holds; 0 or less means none is set). NaN for a sample missing one of the interfaces
+    the machine has, and for every sample of a machine without power limits."""
     limits = frame[["pl1_w", "pl1_mmio_w"]].where(lambda v: v > 0)
     limits = limits.dropna(axis="columns", how="all")  # an interface this machine does not have
-    limit = limits.dropna().min(axis=1).dropna()  # the lower limit holds (none: empty)
+    return limits.min(axis=1, skipna=False)
+
+
+def window_stats(frame: pd.DataFrame) -> dict[str, float]:
+    """One machine's package power, temperature, clock and power limit over the samples given
+    (NaN for a value it never logged). The limit values use `power_limit` and leave out samples
+    without a known limit, so `pl1_low_share` is the share of the samples with a known limit."""
+    limit = power_limit(frame).dropna()  # none: empty
     return {
         "power_w_mean": float(frame["power_w"].mean()),
         "package_c_max": float(frame["package_c"].max()),

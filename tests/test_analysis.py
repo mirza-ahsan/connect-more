@@ -191,6 +191,41 @@ def test_window_stats() -> None:
     one = metrics.window_stats(frame.assign(pl1_w=[50.0, 0.0, 70.0, 70.0], pl1_mmio_w=None))
     assert one["pl1_w_mean"] == pytest.approx(190 / 3)
     assert one["pl1_low_share"] == pytest.approx(1 / 3)
+    # The same rule sample by sample (the paper figure's dashed line).
+    limit = metrics.power_limit(frame)
+    assert limit.iloc[:3].tolist() == [76.0, 45.0, 45.0] and pd.isna(limit.iloc[3])
+    assert metrics.power_limit(frame.assign(pl1_w=None, pl1_mmio_w=None)).isna().all()
+
+
+def fake_run(run_id: str, strategy: str, valid: bool = True, **info: object) -> Run:
+    start = {"event": "experiment_start", "pilot": False, **info}
+    return Run(
+        run_id,
+        Path(run_id),
+        [
+            {"event": "coordinator_start", "config": {"strategy": strategy}},
+            {"event": "run_end", "summary": {"correct": True}},
+        ],
+        [start, {"event": "experiment_end", "valid": valid}],
+    )
+
+
+def test_paper_pair(tmp_path: Path) -> None:
+    e2 = {"experiment": "E2", "link": "cable"}
+    first = fake_run("a", "V3", repeat=1, **e2)
+    third = fake_run("b", "V3", repeat=3, **e2)
+    others = [
+        fake_run("c", "V2", repeat=1, **e2),  # other strategy
+        fake_run("d", "V3", repeat=3, experiment="E2", link="wifi"),  # other link
+        fake_run("e", "V3", repeat=3, experiment="E3", link="cable"),  # other experiment
+        fake_run("f", "V3", valid=False, repeat=1, **e2),  # invalid
+        fake_run("g", "V3", repeat=1, pilot=True, **e2),  # pilot (loaded with --pilot)
+    ]
+    assert figures.paper_pair([third, *others, first]) == (first, third)  # in repeat order
+    assert figures.paper_pair([first, *others]) is None
+    assert figures.paper_pair([first, third, fake_run("h", "V3", repeat=3, **e2)]) is None  # two
+    assert figures.paper_sensors_figure([first, *others], {}, tmp_path / "x.pdf") is False
+    assert not (tmp_path / "x.pdf").exists()
 
 
 @needs_solver("7x6")
